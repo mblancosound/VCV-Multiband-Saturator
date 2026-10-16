@@ -1,0 +1,19 @@
+{
+	"slug": "Coal_Dynamics",
+	"brand": "Coal Dynamics",
+	"version": "2.0.0",
+	"license": "MIT",
+	"author": "Manuel Blanco",
+	"name": "Multiband Saturator",
+	"modules": [
+		{
+			"slug": "Multiband_Saturator",
+			"name": "Multiband Saturator",
+			"description": "Multiband Saturator with 3 bands and drive and pan controls each band",
+			"tags": [
+				"Effect",
+				"Distortion"
+			]
+		}
+	]
+}

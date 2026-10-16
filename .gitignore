@@ -1,0 +1,25 @@
+# VCV Rack build artifacts
+build/
+dist/
+dep/build/
+*.o
+*.d
+
+# Compiled plugin binaries
+*.dll
+*.so
+*.dylib
+*.vcvplugin
+
+# Local build output folder (mirrors plugin slug)
+Saturator/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.code-workspace
+*~
+*.swp
+*.swo
