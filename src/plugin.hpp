@@ -41,7 +41,7 @@ struct CustomOutputPort : SvgPort {
   }
 };
 
-struct TornilloNegro : SvgPort {
+struct TornilloNegro : app::SvgScrew {
   TornilloNegro() {
     setSvg(APP->window->loadSvg(
         asset::plugin(pluginInstance, "res/tornillo_negro.svg")));

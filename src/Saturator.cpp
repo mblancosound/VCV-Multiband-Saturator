@@ -8,15 +8,15 @@ Saturator::Saturator() {
   config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
   configParam(LOW_DRIVE, 0.f, 1.f, 0.f, "Low Drive", "%", 0.f, 100.f);
-  configParam(LOW_PAN, -1.f, 1.f, 0.f, "Low Pan", "", -1.f, 1.f);
+  configParam<PanParamQuantity>(LOW_PAN, -1.f, 1.f, 0.f, "Low Pan", "");
   configParam(LOW_VOL, 0.f, 1.f, 0.8f, "Low Vol", "%", 0.f, 100.f);
 
   configParam(MID_DRIVE, 0.f, 1.f, 0.f, "Mid Drive", "%", 0.f, 100.f);
-  configParam(MID_PAN, -1.f, 1.f, 0.f, "Mid Pan", "", -1.f, 1.f);
+  configParam<PanParamQuantity>(MID_PAN, -1.f, 1.f, 0.f, "Mid Pan", "");
   configParam(MID_VOL, 0.f, 1.f, 0.8f, "Mid Vol", "%", 0.f, 100.f);
 
   configParam(HIGH_DRIVE, 0.f, 1.f, 0.f, "High Drive", "%", 0.f, 100.f);
-  configParam(HIGH_PAN, -1.f, 1.f, 0.f, "High Pan", "", -1.f, 1.f);
+  configParam<PanParamQuantity>(HIGH_PAN, -1.f, 1.f, 0.f, "High Pan", "");
   configParam(HIGH_VOL, 0.f, 1.f, 0.8f, "High Vol", "%", 0.f, 100.f);
 
   configParam(OUTPUT_VOL, 0.f, 1.f, 1.f, "Output", "%", 0.f, 100.f);
@@ -130,14 +130,15 @@ void Saturator::process(const ProcessArgs &args) {
                                 params[HIGH_VOL_CV].getValue(),
                         0.f, 1.f);
 
-  float lowOutL = wetLowL * volLow * (1.f - panLow * 0.5f);
-  float lowOutR = wetLowR * volLow * (1.f + panLow * 0.5f);
+  // Ley de pan: balance lineal con corte total (G_L=min(1,1-p), G_R=min(1,1+p)); nunca gana >1
+  float lowOutL = wetLowL * volLow * std::min(1.f, 1.f - panLow);
+  float lowOutR = wetLowR * volLow * std::min(1.f, 1.f + panLow);
 
-  float midOutL = wetMidL * volMid * (1.f - panMid * 0.5f);
-  float midOutR = wetMidR * volMid * (1.f + panMid * 0.5f);
+  float midOutL = wetMidL * volMid * std::min(1.f, 1.f - panMid);
+  float midOutR = wetMidR * volMid * std::min(1.f, 1.f + panMid);
 
-  float highOutL = wetHighL * volHigh * (1.f - panHigh * 0.5f);
-  float highOutR = wetHighR * volHigh * (1.f + panHigh * 0.5f);
+  float highOutL = wetHighL * volHigh * std::min(1.f, 1.f - panHigh);
+  float highOutR = wetHighR * volHigh * std::min(1.f, 1.f + panHigh);
 
   float wetL = lowOutL + midOutL + highOutL;
   float wetR = lowOutR + midOutR + highOutR;
@@ -245,15 +246,15 @@ SaturatorWidget::SaturatorWidget(Saturator *module) {
 
   // Entradas CV
   addInput(createInputCentered<CustomInputPort>(Vec(52.6, 273), module,
-                                                Saturator::LOW_VOL_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(82.4, 273), module,
-                                                Saturator::MID_VOL_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(119.7, 273), module,
-                                                Saturator::HIGH_VOL_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(149.5, 273), module,
                                                 Saturator::LOW_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(187.6, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(82.4, 273), module,
+                                                Saturator::LOW_VOL_INPUT));
+  addInput(createInputCentered<CustomInputPort>(Vec(119.7, 273), module,
                                                 Saturator::MID_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(217.4, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(149.5, 273), module,
+                                                Saturator::MID_VOL_INPUT));
+  addInput(createInputCentered<CustomInputPort>(Vec(187.6, 273), module,
                                                 Saturator::HIGH_PAN_INPUT));
+  addInput(createInputCentered<CustomInputPort>(Vec(217.4, 273), module,
+                                                Saturator::HIGH_VOL_INPUT));
 }

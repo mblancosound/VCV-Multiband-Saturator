@@ -4,6 +4,23 @@
 
 using namespace rack;
 
+/** Format for the PAN knobs: bipolar balance on a 0-50 scale, "C" at center.
+Overrides only the display string; the raw value in [-1, 1] and its range are unchanged.
+*/
+struct PanParamQuantity : ParamQuantity {
+  std::string getDisplayValueString() override {
+    float v = getValue();
+    if (v < -1.f)
+      v = -1.f;
+    if (v > 1.f)
+      v = 1.f;
+    int n = (int) std::lround((v < 0.f ? -v : v) * 50.f);
+    if (n == 0)
+      return "C";
+    return string::f("%d%s", n, v < 0.f ? "L" : "R");
+  }
+};
+
 struct Saturator;
 
 struct SaturatorWidget : ModuleWidget {
