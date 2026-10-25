@@ -1,4 +1,5 @@
 #include "Saturator.hpp"
+
 #include "plugin.hpp"
 
 Plugin *pluginInstance;
@@ -61,200 +62,242 @@ Saturator::Saturator() {
 
   lightDivider.setDivision(32);
 
-  float sr = APP->engine->getSampleRate();
+  // Filtros disenados para la frecuencia de muestreo actual x factor de
+  // sobremuestreo. onSampleRateChange() los reajusta al entrar en el engine.
+  updateFilterFrequencies();
+}
+
+/** Disena los crossovers a sampleRate * oversampling. Unico punto que toca
+los coeficientes de los biquads. */
+void Saturator::updateFilterFrequencies() {
+  float fs = sampleRate * (float) oversampling;
 
   // Lowpass
-  lowFilterL.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / sr, 0.707f,
+  lowFilterL.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
                            1.0f);
-  lowFilterR.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / sr, 0.707f,
+  lowFilterR.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
                            1.0f);
 
   // Bandpass
-  midFilterL.setParameters(dsp::BiquadFilter::BANDPASS, 1000.f / sr, 1.0f,
+  midFilterL.setParameters(dsp::BiquadFilter::BANDPASS, 1000.f / fs, 1.0f,
                            1.0f);
-  midFilterR.setParameters(dsp::BiquadFilter::BANDPASS, 1000.f / sr, 1.0f,
+  midFilterR.setParameters(dsp::BiquadFilter::BANDPASS, 1000.f / fs, 1.0f,
                            1.0f);
 
   // Highpass
-  highFilterL.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / sr, 0.707f,
+  highFilterL.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
                             1.0f);
-  highFilterR.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / sr, 0.707f,
+  highFilterR.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
                             1.0f);
 }
 
+/** Llamado desde UI o desde el JSON: solo registra la peticion para que el
+hilo de audio la aplique al principio de un bloque. */
+void Saturator::setOversampling(int factor) {
+  if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
+    return;
+  if (factor == oversampling)
+    return;
+  pendingOversampling = factor;
+}
+
+/** Llamado desde el hilo de audio: limpia estados y recalcula coeficientes. */
+void Saturator::applyOversampling(int factor) {
+  oversampling = factor;
+
+  if (factor == 2)
+    stage2.reset();
+  else if (factor == 4)
+    stage4.reset();
+  else if (factor == 8)
+    stage8.reset();
+
+  dryDelay = (factor > 1) ? coaldynamics::OS_LATENCY : 0;
+  for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
+    dryBufferL[i] = 0.f;
+    dryBufferR[i] = 0.f;
+  }
+  dryIndex = 0;
+
+  lowFilterL.reset();
+  lowFilterR.reset();
+  midFilterL.reset();
+  midFilterR.reset();
+  highFilterL.reset();
+  highFilterR.reset();
+
+  updateFilterFrequencies();
+}
+
+void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
+  sampleRate = e.sampleRate;
+
+  for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
+    dryBufferL[i] = 0.f;
+    dryBufferR[i] = 0.f;
+  }
+  dryIndex = 0;
+
+  updateFilterFrequencies();
+}
+
+json_t *Saturator::dataToJson() {
+  json_t *rootJ = json_object();
+  json_object_set_new(rootJ, "oversampling", json_integer(oversampling));
+  return rootJ;
+}
+
+void Saturator::dataFromJson(json_t *rootJ) {
+  json_t *osJ = json_object_get(rootJ, "oversampling");
+  if (osJ) {
+    int factor = (int) json_integer_value(osJ);
+    if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
+      factor = 4;
+    setOversampling(factor);
+  }
+}
+
+/** Procesa un bloque de Stage::FACTOR submuestras: filtros + tanh + pan/vol a
+frecuencia sobremuestreada, y decimacion de la suma de bandas. */
+template <class Stage>
+void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
+                             float inR, float &outL, float &outR) {
+  const int N = Stage::FACTOR;
+  float highL[N];
+  float highR[N];
+  float wetL[N];
+  float wetR[N];
+
+  stage.upsample(inL, inR, highL, highR);
+
+  for (int i = 0; i < N; i++) {
+    float xL = highL[i];
+    float xR = highR[i];
+
+    float lowL = lowFilterL.process(xL);
+    float lowR = lowFilterR.process(xR);
+    float midL = midFilterL.process(xL);
+    float midR = midFilterR.process(xR);
+    float upperL = highFilterL.process(xL);
+    float upperR = highFilterR.process(xR);
+
+    float wetLowL = std::tanh(lowL * p.driveLow);
+    float wetLowR = std::tanh(lowR * p.driveLow);
+    float wetMidL = std::tanh(midL * p.driveMid);
+    float wetMidR = std::tanh(midR * p.driveMid);
+    float wetUpperL = std::tanh(upperL * p.driveHigh);
+    float wetUpperR = std::tanh(upperR * p.driveHigh);
+
+    // Ley de pan: balance lineal con corte total (G_L=min(1,1-p),
+    // G_R=min(1,1+p)); nunca gana >1
+    float lowOutL = wetLowL * p.volLow * std::min(1.f, 1.f - p.panLow);
+    float lowOutR = wetLowR * p.volLow * std::min(1.f, 1.f + p.panLow);
+
+    float midOutL = wetMidL * p.volMid * std::min(1.f, 1.f - p.panMid);
+    float midOutR = wetMidR * p.volMid * std::min(1.f, 1.f + p.panMid);
+
+    float upperOutL = wetUpperL * p.volHigh * std::min(1.f, 1.f - p.panHigh);
+    float upperOutR = wetUpperR * p.volHigh * std::min(1.f, 1.f + p.panHigh);
+
+    wetL[i] = lowOutL + midOutL + upperOutL;
+    wetR[i] = lowOutR + midOutR + upperOutR;
+
+    if (i == N - 1) {
+      satLowMeter = std::min(std::abs(wetLowL - lowL * p.driveLow), 1.f);
+      satMidMeter = std::min(std::abs(wetMidL - midL * p.driveMid), 1.f);
+      satHighMeter = std::min(std::abs(wetUpperL - upperL * p.driveHigh), 1.f);
+    }
+  }
+
+  outL = stage.downsampleL(wetL);
+  outR = stage.downsampleR(wetR);
+}
+
 void Saturator::process(const ProcessArgs &args) {
+  if (pendingOversampling != 0) {
+    int factor = pendingOversampling;
+    pendingOversampling = 0;
+    applyOversampling(factor);
+  }
+
   float inL = inputs[IN_L].getVoltage();
   float inR = inputs[IN_R].isConnected() ? inputs[IN_R].getVoltage() : inL;
 
-  float lowL = lowFilterL.process(inL);
-  float lowR = lowFilterR.process(inR);
-  float midL = midFilterL.process(inL);
-  float midR = midFilterR.process(inR);
-  float highL = highFilterL.process(inL);
-  float highR = highFilterR.process(inR);
+  OSParams p;
+  p.driveLow = 1.f + params[LOW_DRIVE].getValue() * 10.f;
+  p.driveMid = 1.f + params[MID_DRIVE].getValue() * 10.f;
+  p.driveHigh = 1.f + params[HIGH_DRIVE].getValue() * 10.f;
 
-  float driveLow = 1.f + params[LOW_DRIVE].getValue() * 10.f;
-  float driveMid = 1.f + params[MID_DRIVE].getValue() * 10.f;
-  float driveHigh = 1.f + params[HIGH_DRIVE].getValue() * 10.f;
+  p.panLow = clamp(params[LOW_PAN].getValue() +
+                       (inputs[LOW_PAN_INPUT].getVoltage() / 10.f) *
+                           params[LOW_PAN_CV].getValue(),
+                   -1.f, 1.f);
+  p.panMid = clamp(params[MID_PAN].getValue() +
+                       (inputs[MID_PAN_INPUT].getVoltage() / 10.f) *
+                           params[MID_PAN_CV].getValue(),
+                   -1.f, 1.f);
+  p.panHigh = clamp(params[HIGH_PAN].getValue() +
+                        (inputs[HIGH_PAN_INPUT].getVoltage() / 10.f) *
+                            params[HIGH_PAN_CV].getValue(),
+                    -1.f, 1.f);
 
-  float wetLowL = std::tanh(lowL * driveLow);
-  float wetLowR = std::tanh(lowR * driveLow);
-  float wetMidL = std::tanh(midL * driveMid);
-  float wetMidR = std::tanh(midR * driveMid);
-  float wetHighL = std::tanh(highL * driveHigh);
-  float wetHighR = std::tanh(highR * driveHigh);
+  p.volLow = clamp(params[LOW_VOL].getValue() +
+                       (inputs[LOW_VOL_INPUT].getVoltage() / 10.f) *
+                           params[LOW_VOL_CV].getValue(),
+                   0.f, 1.f);
+  p.volMid = clamp(params[MID_VOL].getValue() +
+                       (inputs[MID_VOL_INPUT].getVoltage() / 10.f) *
+                           params[MID_VOL_CV].getValue(),
+                   0.f, 1.f);
+  p.volHigh = clamp(params[HIGH_VOL].getValue() +
+                        (inputs[HIGH_VOL_INPUT].getVoltage() / 10.f) *
+                            params[HIGH_VOL_CV].getValue(),
+                    0.f, 1.f);
 
-  float panLow = clamp(params[LOW_PAN].getValue() +
-                           (inputs[LOW_PAN_INPUT].getVoltage() / 5.f) *
-                               params[LOW_PAN_CV].getValue(),
-                       -1.f, 1.f);
-  float panMid = clamp(params[MID_PAN].getValue() +
-                           (inputs[MID_PAN_INPUT].getVoltage() / 5.f) *
-                               params[MID_PAN_CV].getValue(),
-                       -1.f, 1.f);
-  float panHigh = clamp(params[HIGH_PAN].getValue() +
-                            (inputs[HIGH_PAN_INPUT].getVoltage() / 5.f) *
-                                params[HIGH_PAN_CV].getValue(),
-                        -1.f, 1.f);
+  float wetL = 0.f;
+  float wetR = 0.f;
+  switch (oversampling) {
+    case 1:
+      processBands(stage1, p, inL, inR, wetL, wetR);
+      break;
+    case 2:
+      processBands(stage2, p, inL, inR, wetL, wetR);
+      break;
+    case 8:
+      processBands(stage8, p, inL, inR, wetL, wetR);
+      break;
+    default:
+      processBands(stage4, p, inL, inR, wetL, wetR);
+      break;
+  }
 
-  float volLow = clamp(params[LOW_VOL].getValue() +
-                           (inputs[LOW_VOL_INPUT].getVoltage() / 10.f) *
-                               params[LOW_VOL_CV].getValue(),
-                       0.f, 1.f);
-  float volMid = clamp(params[MID_VOL].getValue() +
-                           (inputs[MID_VOL_INPUT].getVoltage() / 10.f) *
-                               params[MID_VOL_CV].getValue(),
-                       0.f, 1.f);
-  float volHigh = clamp(params[HIGH_VOL].getValue() +
-                            (inputs[HIGH_VOL_INPUT].getVoltage() / 10.f) *
-                                params[HIGH_VOL_CV].getValue(),
-                        0.f, 1.f);
-
-  // Ley de pan: balance lineal con corte total (G_L=min(1,1-p), G_R=min(1,1+p)); nunca gana >1
-  float lowOutL = wetLowL * volLow * std::min(1.f, 1.f - panLow);
-  float lowOutR = wetLowR * volLow * std::min(1.f, 1.f + panLow);
-
-  float midOutL = wetMidL * volMid * std::min(1.f, 1.f - panMid);
-  float midOutR = wetMidR * volMid * std::min(1.f, 1.f + panMid);
-
-  float highOutL = wetHighL * volHigh * std::min(1.f, 1.f - panHigh);
-  float highOutR = wetHighR * volHigh * std::min(1.f, 1.f + panHigh);
-
-  float wetL = lowOutL + midOutL + highOutL;
-  float wetR = lowOutR + midOutR + highOutR;
+  // El dry se retrasa lo mismo que el wet para no cancelar en peine al mezclar
+  dryBufferL[dryIndex] = inL;
+  dryBufferR[dryIndex] = inR;
+  int readIndex = dryIndex - dryDelay;
+  if (readIndex < 0)
+    readIndex += coaldynamics::OS_LATENCY + 1;
+  float dryL = dryBufferL[readIndex];
+  float dryR = dryBufferR[readIndex];
+  dryIndex++;
+  if (dryIndex > coaldynamics::OS_LATENCY)
+    dryIndex = 0;
 
   float mix = params[MIX_PARAM].getValue();
-  float outL = inL * (1.f - mix) + wetL * mix;
-  float outR = inR * (1.f - mix) + wetR * mix;
+  float outL = dryL * (1.f - mix) + wetL * mix;
+  float outR = dryR * (1.f - mix) + wetR * mix;
 
   float outVol = params[OUTPUT_VOL].getValue();
   outputs[OUT_L].setVoltage(outL * outVol);
   outputs[OUT_R].setVoltage(outR * outVol);
 
   if (lightDivider.process()) {
-    float satLow = std::abs(wetLowL - lowL * driveLow);
-    float satMid = std::abs(wetMidL - midL * driveMid);
-    float satHigh = std::abs(wetHighL - highL * driveHigh);
-    lights[SATURE_LIGHT + 0].setSmoothBrightness(
-        std::min(satLow, 1.f), args.sampleTime * lightDivider.getDivision());
-    lights[SATURE_LIGHT + 1].setSmoothBrightness(
-        std::min(satLow, 1.f), args.sampleTime * lightDivider.getDivision());
-    lights[SATURE_LIGHT + 2].setSmoothBrightness(
-        std::min(satMid, 1.f), args.sampleTime * lightDivider.getDivision());
-    lights[SATURE_LIGHT + 3].setSmoothBrightness(
-        std::min(satMid, 1.f), args.sampleTime * lightDivider.getDivision());
-    lights[SATURE_LIGHT + 4].setSmoothBrightness(
-        std::min(satHigh, 1.f), args.sampleTime * lightDivider.getDivision());
-    lights[SATURE_LIGHT + 5].setSmoothBrightness(
-        std::min(satHigh, 1.f), args.sampleTime * lightDivider.getDivision());
+    float smoothTime = args.sampleTime * lightDivider.getDivision();
+    lights[SATURE_LIGHT + 0].setSmoothBrightness(satLowMeter, smoothTime);
+    lights[SATURE_LIGHT + 1].setSmoothBrightness(satLowMeter, smoothTime);
+    lights[SATURE_LIGHT + 2].setSmoothBrightness(satMidMeter, smoothTime);
+    lights[SATURE_LIGHT + 3].setSmoothBrightness(satMidMeter, smoothTime);
+    lights[SATURE_LIGHT + 4].setSmoothBrightness(satHighMeter, smoothTime);
+    lights[SATURE_LIGHT + 5].setSmoothBrightness(satHighMeter, smoothTime);
   }
-}
-
-SaturatorWidget::SaturatorWidget(Saturator *module) {
-  setModule(module);
-
-  box.size = Vec(270, 380);
-
-  setPanel(createPanel(asset::plugin(pluginInstance, "res/Saturator.svg")));
-
-  // Tornillos
-  addChild(createWidget<TornilloNegro>(Vec(RACK_GRID_WIDTH, 0)));
-  addChild(
-      createWidget<TornilloNegro>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
-  addChild(createWidget<TornilloNegro>(
-      Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-  addChild(createWidget<TornilloNegro>(Vec(
-      box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-
-  // Drives (Knobs de 48px)
-  addParam(
-      createParamCentered<Knob48>(Vec(67.5, 84), module, Saturator::LOW_DRIVE));
-  addParam(
-      createParamCentered<Knob48>(Vec(135, 84), module, Saturator::MID_DRIVE));
-  addParam(createParamCentered<Knob48>(Vec(202.5, 84), module,
-                                       Saturator::HIGH_DRIVE));
-
-  // Pans (Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(52.5, 127.4), module,
-                                       Saturator::LOW_PAN));
-  addParam(
-      createParamCentered<Knob20>(Vec(120, 127.4), module, Saturator::MID_PAN));
-  addParam(createParamCentered<Knob20>(Vec(187.5, 127.4), module,
-                                       Saturator::HIGH_PAN));
-
-  // Vols (Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(82.5, 147.4), module,
-                                       Saturator::LOW_VOL));
-  addParam(
-      createParamCentered<Knob20>(Vec(150, 147.4), module, Saturator::MID_VOL));
-  addParam(createParamCentered<Knob20>(Vec(217.5, 147.4), module,
-                                       Saturator::HIGH_VOL));
-
-  // Output & Mix (Knobs de 48px)
-  addParam(createParamCentered<Knob48>(Vec(101.3, 201.3), module,
-                                       Saturator::OUTPUT_VOL));
-  addParam(createParamCentered<Knob48>(Vec(168.8, 201.3), module,
-                                       Saturator::MIX_PARAM));
-
-  // CV Pans (Atenuadores CV - Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(52.6, 299.6), module,
-                                       Saturator::LOW_PAN_CV));
-  addParam(createParamCentered<Knob20>(Vec(120.1, 299.6), module,
-                                       Saturator::MID_PAN_CV));
-  addParam(createParamCentered<Knob20>(Vec(187.6, 299.6), module,
-                                       Saturator::HIGH_PAN_CV));
-
-  // CV Vols (Atenuadores CV - Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(82.4, 299.6), module,
-                                       Saturator::LOW_VOL_CV));
-  addParam(createParamCentered<Knob20>(Vec(149.9, 299.6), module,
-                                       Saturator::MID_VOL_CV));
-  addParam(createParamCentered<Knob20>(Vec(217.4, 299.6), module,
-                                       Saturator::HIGH_VOL_CV));
-
-  // Entradas de Audio
-  addInput(createInputCentered<CustomInputPort>(Vec(47.3, 352.6), module,
-                                                Saturator::IN_L));
-  addInput(createInputCentered<CustomInputPort>(Vec(87.7, 352.6), module,
-                                                Saturator::IN_R));
-
-  // Salidas de Audio
-  addOutput(createOutputCentered<CustomOutputPort>(Vec(182.3, 352.6), module,
-                                                   Saturator::OUT_L));
-  addOutput(createOutputCentered<CustomOutputPort>(Vec(222.8, 352.6), module,
-                                                   Saturator::OUT_R));
-
-  // Entradas CV
-  addInput(createInputCentered<CustomInputPort>(Vec(52.6, 273), module,
-                                                Saturator::LOW_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(82.4, 273), module,
-                                                Saturator::LOW_VOL_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(119.7, 273), module,
-                                                Saturator::MID_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(149.5, 273), module,
-                                                Saturator::MID_VOL_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(187.6, 273), module,
-                                                Saturator::HIGH_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(217.4, 273), module,
-                                                Saturator::HIGH_VOL_INPUT));
 }

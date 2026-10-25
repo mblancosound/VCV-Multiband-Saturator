@@ -21,7 +21,7 @@ válidos. El cambio es local a las 6 líneas de salida por banda.
 - DC-blocker (no existe; no introducirlo).
 - Compensación / mezcla de **igual potencia** (esta ley es de balance, no de potencia).
 - `configParam` de `*_PAN_CV`: el default **se queda en 0** (decisión del propietario), y el
-  escalado `/5.f` del CV de pan se mantiene.
+  escalado del CV de pan se mantiene. *(Superado por `cv_scaling_fix_spec.md` (W-CVSCALE): el divisor es hoy `/10.f`.)*
 - Cualquier otro parámetro, filtro, crossover, drive, `vol`, `mix`, `outVol`.
 - Renumerar/reordenar/eliminar IDs de `Saturator.hpp` (`ParamIds`, `InputIds`, `OutputIds`,
   `LightIds`): están persistidos en patches. Tampoco se toca `Saturator.hpp`.
@@ -65,7 +65,7 @@ comparaciones. El comentario de una línea va inmediatamente antes de `float low
 | Elemento | Estado exigido tras el cambio |
 |---|---|
 | `p = 0` | `G_L = G_R = 1` (idéntico a la ley actual) |
-| Cálculo de `panLow/Mid/High` (líneas 107–118) | sin cambios: `clamp(PAN + (CV/5)*PAN_CV, −1, 1)` |
+| Cálculo de `panLow/Mid/High` (líneas 107–118) | estructura sin cambios; divisor `/10` desde W-CVSCALE: `clamp(PAN + (CV/10)*PAN_CV, −1, 1)` — ver `cv_scaling_fix_spec.md` |
 | `*_PAN_CV` default | 0 (sin cambios en `configParam`) |
 | Camino dry (líneas 145–147) | `in*(1−mix) + wet*mix`, lineal |
 | Suma de bandas (142–143) | `wetL = lowOutL+midOutL+highOutL`,idem R |
@@ -134,8 +134,8 @@ Lecturas exigidas:
 Queda obsoleto en `specs/multiband_saturator_spec.md`:
 - §1.2, punto 3 del DSP: el texto «pan (`(1∓pan/2)`)» describe la ley retirada. En una iteración
   posterior habrá que sustituirlo por «balance lineal con corte total (`min(1, 1∓pan)`)».
-- El hallazgo C9 (§tabla de riesgos) sigue vigente en cuanto al escalado `/5` del CV de pan: no se
-  toca, es una decisión consciente.
+- El hallazgo C9 (§tabla de riesgos) sobre el escalado del CV de pan: **cerrado** por
+  `cv_scaling_fix_spec.md` (divisor unificado en `/10`).
 
 Siguen válidos y **no se tocan**: los baselines medidos de **§C-7**, el mapeo de jacks de **§C-3**,
 C1, C2, geometría §C-4 y el resto de la spec. Este fichero (`specs/pan_law_fix_spec.md`) no modifica

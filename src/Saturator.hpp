@@ -2,6 +2,8 @@
 
 #include <rack.hpp>
 
+#include "Oversampling.hpp"
+
 using namespace rack;
 
 /** Format for the PAN knobs: bipolar balance on a 0-50 scale, "C" at center.
@@ -25,6 +27,7 @@ struct Saturator;
 
 struct SaturatorWidget : ModuleWidget {
   SaturatorWidget(Saturator *module);
+  void appendContextMenu(ui::Menu *menu) override;
 };
 
 struct Saturator : Module {
@@ -62,13 +65,55 @@ struct Saturator : Module {
   enum OutputIds { OUT_L, OUT_R, NUM_OUTPUTS };
   enum LightIds { ENUMS(SATURE_LIGHT, 6), NUM_LIGHTS };
 
+  /** Parameters already resolved (knob + CV) for one base-rate sample. */
+  struct OSParams {
+    float driveLow, driveMid, driveHigh;
+    float panLow, panMid, panHigh;
+    float volLow, volMid, volHigh;
+  };
+
   dsp::ClockDivider lightDivider;
 
   dsp::BiquadFilter lowFilterL, lowFilterR;
   dsp::BiquadFilter midFilterL, midFilterR;
   dsp::BiquadFilter highFilterL, highFilterR;
 
+  coaldynamics::OversampledStage<2, coaldynamics::OS_QUALITY> stage2;
+  coaldynamics::OversampledStage<4, coaldynamics::OS_QUALITY> stage4;
+  coaldynamics::OversampledStage<8, coaldynamics::OS_QUALITY> stage8;
+  coaldynamics::BypassStage<coaldynamics::OS_QUALITY> stage1;
+
+  /** 1, 2, 4 u 8. Sólo lo escribe applyOversampling() en el hilo de audio. */
+  int oversampling = 4;
+  /** Pedido pendiente de aplicar (0 = ninguno). Lo escribe la UI o el JSON. */
+  int pendingOversampling = 0;
+  float sampleRate = 44100.f;
+
+  /** Delay de la señal dry para compensar la latencia del sobremuestreo. */
+  float dryBufferL[coaldynamics::OS_LATENCY + 1] = {};
+  float dryBufferR[coaldynamics::OS_LATENCY + 1] = {};
+  int dryIndex = 0;
+  int dryDelay = coaldynamics::OS_LATENCY;
+
+  /** Saturation meters for the lights, taken from the last oversampled sub-sample. */
+  float satLowMeter = 0.f;
+  float satMidMeter = 0.f;
+  float satHighMeter = 0.f;
+
   Saturator();
 
   void process(const ProcessArgs &args) override;
+  void onSampleRateChange(const SampleRateChangeEvent &e) override;
+  json_t *dataToJson() override;
+  void dataFromJson(json_t *rootJ) override;
+
+  /** Called from UI/JSON threads: only records the request. */
+  void setOversampling(int factor);
+  /** Called from the audio thread: resets state and rebuilds coefficients. */
+  void applyOversampling(int factor);
+  void updateFilterFrequencies();
+
+  template <class Stage>
+  void processBands(Stage &stage, const OSParams &p, float inL, float inR,
+                    float &outL, float &outR);
 };

@@ -6,15 +6,30 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin slug: `Coal_Dynamics`
 - Module: `Multiband Saturator` (`Multiband_Saturator`)
-- Version: `2.0.1`
+- Version: `2.1.0`
 - License: MIT (see `LICENSE.txt`)
 
 ## Features
 
 - 3 bands with Biquad crossover filters (stereo L/R)
 - Per band: Drive, Pan, Volume + CV for Pan/Volume
+- Oversampling 1x / 2x / 4x / 8x (default **4x**)
 - Master Output volume + Mix (dry/wet)
 - Custom SVG knobs, ports and panel in `res/`
+
+## Oversampling
+
+Right-click the module → **Oversampling** → `Off (1x)` / `2x` / `4x` / `8x`. The setting is saved in
+the patch; old patches without the key load in **4x**. The change is applied at the start of the next
+audio block.
+
+The whole chain (crossovers + `tanh` + pan/vol + band sum) runs at `N × sampleRate`, so the FIR pair
+adds a fixed latency of **15 samples** at 2x/4x/8x (0 at 1x). The dry path of MIX is delayed by the
+same amount to keep the mix flat. Changing the factor resets the filters, so it can produce a short
+**click**; it is a setup control, not an automatable parameter.
+
+Measured at 48 kHz with a 5 kHz sine and full drive: worst in-band aliasing is −14.7 dB at 1x,
+−32.8 dB at 4x and −43.3 dB at 8x. See `specs/oversampling_spec.md` for the full table and limits.
 
 ## Requirements
 
@@ -48,7 +63,9 @@ plugin.json        # plugin + module metadata
 Makefile           # Rack build (RACK_DIR, src/*.cpp, res/)
 src/
   plugin.cpp / plugin.hpp      # plugin instance + custom widgets
-  Saturator.cpp / Saturator.hpp # DSP + UI
+  Saturator.cpp / Saturator.hpp # DSP (filters, drive, pan/vol, mix)
+  SaturatorWidget.cpp          # UI + oversampling context menu
+  Oversampling.hpp             # 1x/2x/4x/8x stages (header-only)
 res/               # panel + component SVGs
 LICENSE.txt
 ```
@@ -56,7 +73,7 @@ LICENSE.txt
 ## Install (from source)
 
 1. `make dist`
-2. Copy `dist/Coal_Dynamics-2.0.1-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
+2. Copy `dist/Coal_Dynamics-2.1.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
 3. Restart Rack.
 
 ## License

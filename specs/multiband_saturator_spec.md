@@ -35,16 +35,22 @@ Workspace: `C:\Coal_Dynamics\Multiband_Saturator` · Git: 1 commit (`b209141 Ini
 ### 1.3 Estructura
 
 ```
-Makefile          8 líneas: RACK_DIR, -Idep/include, src/*.cpp, DISTRIBUTABLES += res
+Makefile          Rack build: chequeo de `jq`, RACK_DIR, src/*.cpp, DISTRIBUTABLES += res (sin cambios en v2.1.0)
 plugin.json       manifiesto (plugin + 1 módulo)
 LICENSE.txt       1 línea: "MIT License"   <-- incompleto
-README.md         56 líneas (build/estructura/install)
+README.md         build/estructura/install + sección de oversampling
 src/plugin.hpp    Knob48, Knob20, CustomInput/OutputPort, TornilloNegro, externs
 src/plugin.cpp    init(Plugin*) -> createModel<Saturator, SaturatorWidget>
-src/Saturator.hpp enums ParamIds/InputIds/OutputIds/LightIds + estado DSP
-src/Saturator.cpp ctor (config*), process() y **SaturatorWidget** (UI)  <-- UI y DSP en el mismo TU
+src/Saturator.hpp enums ParamIds/InputIds/OutputIds/LightIds + estado DSP + etapas OS + declaración del widget
+src/Saturator.cpp ctor (config*), process() y DSP  <-- sólo DSP desde v2.1.0
+src/SaturatorWidget.cpp **SaturatorWidget** (UI) + menú contextual de oversampling  <-- nuevo en v2.1.0 (split del widget)
+src/Oversampling.hpp constantes OS_* + `OversampledStage<N,Q>` / `BypassStage`  <-- nuevo en v2.1.0 (header-only)
 res/              Saturator.svg (panel 270x380), Knob_20/32/48px.svg, PJ301M_in/out.svg, tornillo_negro.svg
 ```
+
+**Cambio de estructura (v2.1.0):** el widget salió de `Saturator.cpp` a `src/SaturatorWidget.cpp` (W0.5)
+y se añadió `src/Oversampling.hpp`. `Saturator.cpp` queda como unidad exclusivamente DSP y la UI (incluido
+el menú de oversampling) es una unidad disjunta. `Makefile` no cambia: compila `src/*.cpp`.
 
 ### 1.4 Build verificado (medido en esta máquina)
 
@@ -87,13 +93,13 @@ Artefactos de verificación reutilizables (en temp, fuera del repo):
 |---|---|---|---|
 | **C1** | **CRÍTICA** | **Mapeo de entradas CV permutado respecto al panel.** La fila de jacks en `SaturatorWidget` declara, por columna: `LOW_VOL_INPUT`(52.6), `MID_VOL_INPUT`(82.4), `HIGH_VOL_INPUT`(119.7), `LOW_PAN_INPUT`(149.5), `MID_PAN_INPUT`(187.6), `HIGH_PAN_INPUT`(217.4). El panel rotula **por banda** "PAN" (izq.) y "VOL" (der.) → lo correcto es `LOW_PAN, LOW_VOL, MID_PAN, MID_VOL, HIGH_PAN, HIGH_VOL`. La fila de **atenuadores** CV ya usa el orden correcto por banda, luego la fila de jacks es la que falla | Render de `res/Saturator.svg` (`crop_cv.png`): etiquetas PAN(izq)/VOL(der) por banda. Consecuencia:.patchear CV en el jack bajo "PAN" afecta al VOL de otra banda |
 | C2 | MEDIA | **La sección CV no tiene artwork.** El panel sólo tiene líneas divisoria + etiquetas LOW/MID/HIGH/PAN/VOL; los 6 jacks CV (y=273) y los 6 knobs CV (y=299.6) caen en zona vacía, 18–45 px por debajo de sus etiquetas | Verificado en `crop_cv.png` (crop svg y 225–320) |
-| C3 | MEDIA | Filtros configurados en el **ctor** con `APP->engine->getSampleRate()`. Rack ofrece `onSampleRateChange(const SampleRateChangeEvent&)`, que se invoca "when the Engine sample rate changes, **and when the Module is added to the Engine**" | `C:/Rack-SDK2.6.6/include/engine/Module.hpp:417`. Actual: depende de un global en construcción y no se reajusta si cambia el SR |
+| C3 | INFO | **RESUELTO (W-OS, `oversampling_spec.md`)** — Los crossovers se configuran en `onSampleRateChange()` y en `applyOversampling()`; `updateFilterFrequencies()` es el único punto que toca coeficientes y usa `fs = sampleRate · factor` (factor de sobremuestreo). Ya no se lee `APP->engine` en el ctor ni se depende del SR global en construcción | Verificado con oversampling 1x/2x/4x/8x; build limpio 0 warnings |
 | C4 | MEDIA | 6 luces declaradas (`ENUMS(SATURE_LIGHT, 6)`) y escritas en `process()`, pero **nunca se añade ningún `addChild(createLight...)`** → código muerto. Además ambas luces de banda usan sólo el canal L (0 y 1 idénticas), la métrica `|wet - x·drive|` satura a 1 de inmediato, y hay typo (`SATURE`) | `src/Saturator.cpp:153-169` vs `172-259` (sin luces) |
 | C5 | MEDIA | **No hay bypass** y el estado por defecto no es transparente: DRIVE=0 ⇒ `drive=1` ⇒ `tanh` ya distorsiona. **THD medido = 33 %** con entrada 10 Vpp (H3 = −10,7 dB); MIX default = 1 ⇒ el sumatorio de 3 bandas por defecto | THD por DFT (N=4096), `tanh(5·sin)` |
 | C6 | MEDIA | **Ley de drive comprimida:** DRIVE 50 % (x6) → 35,15 % THD; DRIVE 100 % (x11) → 39,25 % THD. La mitad superior del knob es casi inaudible; no hay calibración en dB ni make-up gain | Misma medición |
 | C7 | BAJA | Sumatorio de bandas sin normalizar: \|H_LP250\|+\|H_BP1000\|+\|H_HP4000\| tiene **pico +1,00 dB @1 kHz** y **suelo −2,06 dB @2,5 kHz**. Con DRIVE=0 y MIX=1 la salida ≠ entrada hasta ±2 dB y hay ripeo de fase en solapes | Biquad RBJ, fs=44,1 kHz, Q 0,707/1,0/0,707 |
 | C8 | BAJA | Sin DC-blocker tras `tanh`: entradas unipolares/con offset (VCO, fuentes con offset) generan offset DC a la salida (`tanh(DC·drive)` esFuertemente compresivo) | Inspección de código |
-| C9 | BAJA | Escalado CV inconsistente: pan usa `V/5` (±10 V → ±2, satura a ±5 V), vol usa `V/10` (±10 V → ±1) | `src/Saturator.cpp:107-131` |
+| C9 | INFO | **RESUELTO (`cv_scaling_fix_spec.md`, W-CVSCALE)** — Escalado CV unificado en /10: pan y vol usan el mismo divisor, 10 V = 1 unidad. Era `V/5` en pan (saturaba a ±5 V) frente a `V/10` en vol. | `src/Saturator.cpp:107-131` |
 | C10 | BAJA | Mezcla dry/wet **lineal**; con señales correlacionadas y wet desfasado hay caída cerca de posiciones medias (falta ley de igual potencia) | `src/Saturator.cpp:145-147` |
 | C11 | BAJA | `randomizeEnabled = false` en los 17 params → "Randomize module" (Ctrl+R) no hace nada | `src/Saturator.cpp:32-48` |
 | C12 | BAJA | `extern Plugin *pluginInstance; extern Model *modelSaturator;` duplicados en `plugin.cpp` y `plugin.hpp`, **definición única** en `Saturator.cpp` → frágil ante un tercer TU (símbolo duplicado) | Lectura de código |
@@ -136,7 +142,7 @@ Timing: **10–15 min**. Bloqueante para W1/W2/W3 en paralelo.
 | ID | Ficheros (únicos) | Contenido | Timing |
 |---|---|---|---|
 | **W1** | `src/SaturatorWidget.cpp` | Fix **C1**: reordenar IDs de la fila de jacks CV a orden por banda. Actualizar comentario con la tabla de mapeo | **10–15 min** |
-| **W2** | `src/Saturator.cpp`, `src/Saturator.hpp` | **C3** mover config de filtros a `onSampleRateChange(e)`; **C8** DC-blocker; **C9** unificar escalado CV (`/5` o `/10` en ambos); **C10** mezcla de igual potencia. Sin tocar el widget | **45–75 min** |
+| **W2** | `src/Saturator.cpp`, `src/Saturator.hpp` | **C3** mover config de filtros a `onSampleRateChange(e)`; **C8** DC-blocker; ~~**C9** unificar escalado CV (`/5` o `/10` en ambos)~~ (**cerrado** por W-CVSCALE, `cv_scaling_fix_spec.md`); **C10** mezcla de igual potencia. Sin tocar el widget | **45–75 min** |
 | **W3** | `src/Saturator.cpp`, `src/Saturator.hpp`, `src/SaturatorWidget.cpp` | **C4**: o implementar luces (6 `MediumLight` + `configLight` con nombres + usar L/R reales) **o** eliminarlas. **C11** decidir `randomizeEnabled`; **C12/C13** hygiene (definición única de `pluginInstance`, sin nuevos `using namespace`) | **20–40 min** (implementar luces) / **10 min** (borrar) |
 | **W4** | `res/Saturator.svg` | **C2**: artwork de la sección CV (6 jack placeholders + 6 knob placeholders) alineado con (52.6/82.4/119.7/149.5/187.6/217.4 @ y=273) y (52.6/82.4/120.1/149.9/187.6/217.4 @ y=299.6); opcionalmente atributos `data-*` (**M5**). Sólo vector paths (Rack no soporta texto/gradientes/filtros) | **60–120 min** (trabajo de diseño) |
 | **W5** | `Makefile`, `README.md` | **B1** documentar `PATH=/mingw64/bin` / `MSYSTEM=MINGW64`; **B2** limpiar `-Idep/include`; **B6** nota multi-plataforma de `RACK_DIR`; **M3** corregir deriva del README (widget en `Saturator.cpp`, crossovers fijos, sin bypass); añadir `.clang-format` (Google, 2 espacios) | **15–25 min** |
@@ -159,7 +165,7 @@ W4 (SVG) y W5/W6/W7 son disjuntos del C++ y pueden ir en paralelo sin riesgo.
   export PATH=/mingw64/bin:$PATH     # jq; sin esto make falla
   RACK_DIR=/c/Rack-SDK2.6.6 make
   ```
-- Criterio de "no roto": build limpio con **0 warnings** (`-Wall -Wextra` los pone `arch.mk`) y artefacto en `dist/Coal_Dynamics-2.0.0-win-x64.vcvplugin`.
+- Criterio de "no roto": build limpio con **0 warnings** (`-Wall -Wextra` los pone `arch.mk`) y artefacto en `dist/Coal_Dynamics-2.1.0-win-x64.vcvplugin`.
 - No commitear binarios (`*.dll`, `*.vcvplugin`, `build/`, `dist/`, `Saturator/`) — ya están gitignored; no añadir excepciones.
 - No tocar `dep/` (vacío) ni añadir dependencias: el build no tiene red.
 
@@ -192,7 +198,8 @@ W4 (SVG) y W5/W6/W7 son disjuntos del C++ y pueden ir en paralelo sin riesgo.
 
 ### C-6 DSP
 - No cambiar la ley `drive = 1 + 10·DRIVE` ni las frecuencias de crossover sin actualizar README **y** las baselines de abajo.
-- Filtros: configurar en `onSampleRateChange(e)` con `e.sampleRate` (frecuencias normalizadas `f / e.sampleRate`).
+- Filtros: configurar en `onSampleRateChange(e)` con `e.sampleRate` y re-calcular en
+  `applyOversampling()`; frecuencias normalizadas `f / (fs · factor)` (factor de sobremuestreo, 1 en 1x).
 - No introducir `APP->engine` dentro de `process()`; en el ctor sólo `config*`.
 - Preservar: entrada `IN_R` cae a mono si no está conectada.
 
@@ -200,6 +207,12 @@ W4 (SVG) y W5/W6/W7 son disjuntos del C++ y pueden ir en paralelo sin riesgo.
 - THD(tanh(A·sin)), N=4096: A=5, drive=1 → **33,08 %** (H3 −10,7 dB) · drive=6 → **35,15 %** · drive=11 → **39,25 %**.
 - Respuesta del sumatorio de bandas (drive 0): **+1,00 dB @1 kHz**, **−2,06 dB @2,5 kHz**, ~0 dB a 20 Hz y 20 kHz.
 - Timings de build: limpio 7,2 s · 1 fichero 2,7 s · no-op 0,9 s · dist 1,6 s.
+
+> **Nota (v2.1.0, oversampling):** la baseline de respuesta del **sumatorio de bandas** (`+1,00 dB @1 kHz`,
+> `−2,06 dB @2,5 kHz`) **queda obsoleta cuando el oversampling está activo**. Los crossovers se diseñan a
+> `fs · factor`, no a `fs`, así que no aplica a 2x/4x/8x y **debe re-medirse con el factor por defecto
+> (4x)**. Sólo sería comparable en 1x. La THD aislada de `tanh` no cambia, pero cualquier medida de la
+> cadena completa (THD, respuesta, alias) debe rehacerse a 4x. Ver `specs/oversampling_spec.md` §5–§8.
 
 ### C-8 Criterios de aceptación (verificables)
 1. `make clean && make` → 0 errores, 0 warnings; `make dist` produce el `.vcvplugin`.
