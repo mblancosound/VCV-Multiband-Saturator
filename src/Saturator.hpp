@@ -1,8 +1,11 @@
 #pragma once
 
+#include <atomic>
+
 #include <rack.hpp>
 
 #include "Oversampling.hpp"
+#include "Curves.hpp"
 
 using namespace rack;
 
@@ -70,6 +73,7 @@ struct Saturator : Module {
     float driveLow, driveMid, driveHigh;
     float panLow, panMid, panHigh;
     float volLow, volMid, volHigh;
+    int curveLow, curveMid, curveHigh;
   };
 
   dsp::ClockDivider lightDivider;
@@ -83,17 +87,28 @@ struct Saturator : Module {
   coaldynamics::OversampledStage<8, coaldynamics::OS_QUALITY> stage8;
   coaldynamics::BypassStage<coaldynamics::OS_QUALITY> stage1;
 
-  /** 1, 2, 4 u 8. Sólo lo escribe applyOversampling() en el hilo de audio. */
-  int oversampling = 4;
+  /** 1, 2, 4 u 8. Sólo lo escribe applyOversampling() en el hilo de audio.
+      Por defecto 1 (off): el oversampling es opt-in. */
+  int oversampling = 1;
   /** Pedido pendiente de aplicar (0 = ninguno). Lo escribe la UI o el JSON. */
   int pendingOversampling = 0;
   float sampleRate = 44100.f;
+
+  /** Curva elegida por banda (0 = Low, 1 = Mid, 2 = High). La UI y el JSON
+      la escriben; el hilo de audio la lee una vez por bloque. */
+  std::atomic<int> curves[3];
+
+  /** DC-blocker de 15 Hz, solo en el camino wet: coeficiente y estado. */
+  float dcR = 0.f;
+  float dcX1L = 0.f, dcX1R = 0.f;
+  float dcY1L = 0.f, dcY1R = 0.f;
 
   /** Delay de la señal dry para compensar la latencia del sobremuestreo. */
   float dryBufferL[coaldynamics::OS_LATENCY + 1] = {};
   float dryBufferR[coaldynamics::OS_LATENCY + 1] = {};
   int dryIndex = 0;
-  int dryDelay = coaldynamics::OS_LATENCY;
+  /** 1x por defecto: sin latencia de oversampling hasta que se active. */
+  int dryDelay = 0;
 
   /** Saturation meters for the lights, taken from the last oversampled sub-sample. */
   float satLowMeter = 0.f;
@@ -109,6 +124,8 @@ struct Saturator : Module {
 
   /** Called from UI/JSON threads: only records the request. */
   void setOversampling(int factor);
+  /** Llamado desde UI/JSON: valida y publica la curva de una banda. */
+  void setCurve(int band, int id);
   /** Called from the audio thread: resets state and rebuilds coefficients. */
   void applyOversampling(int factor);
   void updateFilterFrequencies();

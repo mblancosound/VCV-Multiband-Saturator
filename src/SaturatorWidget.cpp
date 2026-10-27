@@ -121,4 +121,18 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
         else
           saturator->setOversampling(8);
       }));
+
+  menu->addChild(new ui::MenuSeparator);
+  menu->addChild(createIndexSubmenuItem(
+      "Low Curve", coaldynamics::curveNames(),
+      [=]() { return (size_t) saturator->curves[0].load(); },
+      [=](size_t index) { saturator->setCurve(0, (int) index); }));
+  menu->addChild(createIndexSubmenuItem(
+      "Mid Curve", coaldynamics::curveNames(),
+      [=]() { return (size_t) saturator->curves[1].load(); },
+      [=](size_t index) { saturator->setCurve(1, (int) index); }));
+  menu->addChild(createIndexSubmenuItem(
+      "High Curve", coaldynamics::curveNames(),
+      [=]() { return (size_t) saturator->curves[2].load(); },
+      [=](size_t index) { saturator->setCurve(2, (int) index); }));
 }

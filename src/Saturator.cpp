@@ -65,6 +65,13 @@ Saturator::Saturator() {
   // Filtros disenados para la frecuencia de muestreo actual x factor de
   // sobremuestreo. onSampleRateChange() los reajusta al entrar en el engine.
   updateFilterFrequencies();
+
+  // Curva por defecto: TANH en las tres bandas (comportamiento v2.1.0).
+  for (int i = 0; i < 3; i++)
+    curves[i].store(coaldynamics::TANH, std::memory_order_relaxed);
+
+  const float twoPi = 6.283185307179586f;
+  dcR = std::exp(-twoPi * 15.f / sampleRate);
 }
 
 /** Disena los crossovers a sampleRate * oversampling. Unico punto que toca
@@ -129,8 +136,26 @@ void Saturator::applyOversampling(int factor) {
   updateFilterFrequencies();
 }
 
+/** Llamado desde UI o JSON: valida banda (0..2) e id (0..CURVE_COUNT-1).
+Un valor invalido se ignora. Solo publica el atomico; el audio lo lee en el
+siguiente bloque. */
+void Saturator::setCurve(int band, int id) {
+  if (band < 0 || band > 2)
+    return;
+  if (id < 0 || id >= coaldynamics::CURVE_COUNT)
+    return;
+  curves[band].store(id, std::memory_order_relaxed);
+}
+
 void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
   sampleRate = e.sampleRate;
+
+  const float twoPi = 6.283185307179586f;
+  dcR = std::exp(-twoPi * 15.f / sampleRate);
+  dcX1L = 0.f;
+  dcX1R = 0.f;
+  dcY1L = 0.f;
+  dcY1R = 0.f;
 
   for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
     dryBufferL[i] = 0.f;
@@ -144,6 +169,12 @@ void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
 json_t *Saturator::dataToJson() {
   json_t *rootJ = json_object();
   json_object_set_new(rootJ, "oversampling", json_integer(oversampling));
+
+  json_t *curvesJ = json_array();
+  for (int i = 0; i < 3; i++)
+    json_array_append_new(curvesJ, json_integer(curves[i].load()));
+  json_object_set_new(rootJ, "curves", curvesJ);
+
   return rootJ;
 }
 
@@ -152,12 +183,29 @@ void Saturator::dataFromJson(json_t *rootJ) {
   if (osJ) {
     int factor = (int) json_integer_value(osJ);
     if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
-      factor = 4;
+      factor = 1;
     setOversampling(factor);
+  }
+
+  // Sin "curves" -> TANH en las tres bandas. Valor no entero o array corto
+  // -> TANH en esa banda. Numero fuera de rango -> clamp 0..CURVE_COUNT-1.
+  json_t *curvesJ = json_object_get(rootJ, "curves");
+  for (int i = 0; i < 3; i++) {
+    int id = coaldynamics::TANH;
+    if (curvesJ && json_is_array(curvesJ)) {
+      json_t *idJ = json_array_get(curvesJ, (size_t) i);
+      if (idJ && json_is_integer(idJ))
+        id = (int) json_integer_value(idJ);
+    }
+    if (id < 0)
+      id = 0;
+    if (id >= coaldynamics::CURVE_COUNT)
+      id = coaldynamics::CURVE_COUNT - 1;
+    setCurve(i, id);
   }
 }
 
-/** Procesa un bloque de Stage::FACTOR submuestras: filtros + tanh + pan/vol a
+/** Procesa un bloque de Stage::FACTOR submuestras: filtros + curva + pan/vol a
 frecuencia sobremuestreada, y decimacion de la suma de bandas. */
 template <class Stage>
 void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
@@ -181,12 +229,20 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
     float upperL = highFilterL.process(xL);
     float upperR = highFilterR.process(xR);
 
-    float wetLowL = std::tanh(lowL * p.driveLow);
-    float wetLowR = std::tanh(lowR * p.driveLow);
-    float wetMidL = std::tanh(midL * p.driveMid);
-    float wetMidR = std::tanh(midR * p.driveMid);
-    float wetUpperL = std::tanh(upperL * p.driveHigh);
-    float wetUpperR = std::tanh(upperR * p.driveHigh);
+    float wetLowL = coaldynamics::applyCurve(
+        coaldynamics::curveDrive(lowL, p.driveLow, p.curveLow), p.curveLow);
+    float wetLowR = coaldynamics::applyCurve(
+        coaldynamics::curveDrive(lowR, p.driveLow, p.curveLow), p.curveLow);
+    float wetMidL = coaldynamics::applyCurve(
+        coaldynamics::curveDrive(midL, p.driveMid, p.curveMid), p.curveMid);
+    float wetMidR = coaldynamics::applyCurve(
+        coaldynamics::curveDrive(midR, p.driveMid, p.curveMid), p.curveMid);
+    float wetUpperL = coaldynamics::applyCurve(
+        coaldynamics::curveDrive(upperL, p.driveHigh, p.curveHigh),
+        p.curveHigh);
+    float wetUpperR = coaldynamics::applyCurve(
+        coaldynamics::curveDrive(upperR, p.driveHigh, p.curveHigh),
+        p.curveHigh);
 
     // Ley de pan: balance lineal con corte total (G_L=min(1,1-p),
     // G_R=min(1,1+p)); nunca gana >1
@@ -203,9 +259,18 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
     wetR[i] = lowOutR + midOutR + upperOutR;
 
     if (i == N - 1) {
-      satLowMeter = std::min(std::abs(wetLowL - lowL * p.driveLow), 1.f);
-      satMidMeter = std::min(std::abs(wetMidL - midL * p.driveMid), 1.f);
-      satHighMeter = std::min(std::abs(wetUpperL - upperL * p.driveHigh), 1.f);
+      satLowMeter = std::min(
+          std::abs(wetLowL -
+                   coaldynamics::curveDrive(lowL, p.driveLow, p.curveLow)),
+          1.f);
+      satMidMeter = std::min(
+          std::abs(wetMidL -
+                   coaldynamics::curveDrive(midL, p.driveMid, p.curveMid)),
+          1.f);
+      satHighMeter = std::min(
+          std::abs(wetUpperL -
+                   coaldynamics::curveDrive(upperL, p.driveHigh, p.curveHigh)),
+          1.f);
     }
   }
 
@@ -227,6 +292,9 @@ void Saturator::process(const ProcessArgs &args) {
   p.driveLow = 1.f + params[LOW_DRIVE].getValue() * 10.f;
   p.driveMid = 1.f + params[MID_DRIVE].getValue() * 10.f;
   p.driveHigh = 1.f + params[HIGH_DRIVE].getValue() * 10.f;
+  p.curveLow = curves[0].load(std::memory_order_relaxed);
+  p.curveMid = curves[1].load(std::memory_order_relaxed);
+  p.curveHigh = curves[2].load(std::memory_order_relaxed);
 
   p.panLow = clamp(params[LOW_PAN].getValue() +
                        (inputs[LOW_PAN_INPUT].getVoltage() / 10.f) *
@@ -270,6 +338,17 @@ void Saturator::process(const ProcessArgs &args) {
       processBands(stage4, p, inL, inR, wetL, wetR);
       break;
   }
+
+  // DC-blocker de 15 Hz, solo en el camino wet: y = x - x1 + R*y1.
+  float blockedL = wetL - dcX1L + dcR * dcY1L;
+  dcX1L = wetL;
+  dcY1L = blockedL;
+  wetL = blockedL;
+
+  float blockedR = wetR - dcX1R + dcR * dcY1R;
+  dcX1R = wetR;
+  dcY1R = blockedR;
+  wetR = blockedR;
 
   // El dry se retrasa lo mismo que el wet para no cancelar en peine al mezclar
   dryBufferL[dryIndex] = inL;

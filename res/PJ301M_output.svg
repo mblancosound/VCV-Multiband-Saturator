@@ -1,27 +1,21 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg width="100%" height="100%" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
-    <circle cx="11.85" cy="11.85" r="11.427" style="fill:rgb(44,44,44);"/>
-    <g transform="matrix(-0.258819,0.965926,-0.965926,-0.258819,26.363227,3.470785)">
-        <path d="M11.85,0.423C18.157,0.423 23.277,5.543 23.277,11.85C23.277,18.157 18.157,23.277 11.85,23.277C5.543,23.277 0.423,18.157 0.423,11.85C0.423,5.543 5.543,0.423 11.85,0.423ZM11.85,0.651C18.031,0.651 23.049,5.669 23.049,11.85C23.049,18.031 18.031,23.049 11.85,23.049C5.669,23.049 0.651,18.031 0.651,11.85C0.651,5.669 5.669,0.651 11.85,0.651Z" style="fill:url(#_Linear1);"/>
-    </g>
-    <g transform="matrix(0.88556,-0.464525,0.464525,0.88556,-4.148508,6.860737)">
-        <path d="M11.85,0.984L21.261,6.417L21.261,17.283L11.85,22.716L2.439,17.283L2.439,6.417L11.85,0.984Z" style="fill:url(#_Linear2);"/>
-    </g>
-    <g transform="matrix(-0.040121,0.974656,-0.974656,-0.040121,23.875115,0.775764)">
-        <path d="M11.85,0.984L21.261,6.417L21.261,17.283L11.85,22.716L2.439,17.283L2.439,6.417L11.85,0.984Z" style="fill:rgb(64,64,64);"/>
-    </g>
-    <circle id="Circulo-Gris" serif:id="Circulo Gris" cx="11.85" cy="11.85" r="7.745" style="fill:rgb(32,32,32);"/>
-    <circle id="Circulo-Verde" serif:id="Circulo Verde" cx="11.85" cy="11.85" r="7.745" style="fill:url(#_Linear3);"/>
-    <g id="Anillo-Gris" serif:id="Anillo Gris" transform="matrix(0.731981,-0.731981,0.731981,0.731981,-5.49794,11.85)">
-        <path d="M11.85,5.325C15.451,5.325 18.375,8.249 18.375,11.85C18.375,15.451 15.451,18.375 11.85,18.375C8.249,18.375 5.325,15.451 5.325,11.85C5.325,8.249 8.249,5.325 11.85,5.325ZM11.85,5.586C15.307,5.586 18.114,8.393 18.114,11.85C18.114,15.307 15.307,18.114 11.85,18.114C8.393,18.114 5.586,15.307 5.586,11.85C5.586,8.393 8.393,5.586 11.85,5.586Z" style="fill:url(#_Linear4);"/>
-    </g>
-    <circle cx="11.85" cy="11.85" r="5.514" style="fill:url(#_Radial5);"/>
-    <defs>
-        <linearGradient id="_Linear1" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(22.854175,0,0,22.854175,0.422913,11.85)"><stop offset="0" style="stop-color:rgb(91,91,91);stop-opacity:1"/><stop offset="1" style="stop-color:rgb(34,34,34);stop-opacity:1"/></linearGradient>
-        <linearGradient id="_Linear2" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(21.732856,0,0,21.732856,0.983572,11.85)"><stop offset="0" style="stop-color:rgb(34,34,34);stop-opacity:1"/><stop offset="1" style="stop-color:rgb(83,83,83);stop-opacity:1"/></linearGradient>
-        <linearGradient id="_Linear3" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(15.489539,0,0,15.489539,4.10523,11.85)"><stop offset="0" style="stop-color:rgb(18,161,21);stop-opacity:1"/><stop offset="1" style="stop-color:rgb(18,161,21);stop-opacity:1"/></linearGradient>
-        <linearGradient id="_Linear4" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(13.04937,0,0,13.04937,5.325315,11.85)"><stop offset="0" style="stop-color:rgb(51,51,51);stop-opacity:1"/><stop offset="1" style="stop-color:rgb(32,32,32);stop-opacity:1"/></linearGradient>
-        <radialGradient id="_Radial5" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(5.51428,0,0,5.51428,11.85,11.85)"><stop offset="0" style="stop-color:black;stop-opacity:1"/><stop offset="1" style="stop-color:rgb(12,12,12);stop-opacity:1"/></radialGradient>
-    </defs>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:serif="http://www.serif.com/" viewBox="0 0 24 24">
+<title>PJ301M_output.svg</title>
+<g id="Layer_1" data-name="Layer 1">
+<path d="M0.498 11.998 C0.498 5.646 5.646 0.498 11.998 0.498 C18.349 0.498 23.498 5.646 23.498 11.998 C23.498 18.349 18.349 23.498 11.998 23.498 C5.646 23.498 0.498 18.349 0.498 11.998 Z" style="fill:#434343"/>
+<path d="M0.812 12 C0.812 5.821 5.821 0.812 12 0.812 C18.179 0.812 23.188 5.821 23.188 12 C23.188 18.179 18.179 23.188 12 23.188 C5.821 23.188 0.812 18.179 0.812 12 Z" style="fill:#323232"/>
+<path d="M17.902 3.749 L22.124 12.642 C22.177 12.754 22.167 12.885 22.097 12.986 L16.506 21.089 C16.436 21.191 16.317 21.247 16.195 21.237 L6.381 20.447 C6.259 20.437 6.151 20.362 6.098 20.251 L1.876 11.358 C1.823 11.246 1.833 11.115 1.903 11.014 L7.494 2.911 C7.564 2.809 7.683 2.753 7.805 2.763 L17.619 3.553 C17.741 3.563 17.849 3.638 17.902 3.749 Z" style="fill:#515151"/>
+<path d="M17.686 4.061 L21.746 12.614 C21.798 12.724 21.788 12.854 21.719 12.954 L16.341 20.747 C16.272 20.848 16.154 20.904 16.033 20.894 L6.595 20.133 C6.474 20.124 6.366 20.05 6.314 19.939 L2.254 11.386 C2.202 11.276 2.212 11.146 2.281 11.046 L7.659 3.253 C7.728 3.152 7.846 3.096 7.967 3.106 L17.405 3.867 C17.526 3.876 17.634 3.95 17.686 4.061 Z" style="fill:#404040"/>
+<path d="M4.195 12 C4.195 7.69 7.69 4.195 12 4.195 C16.31 4.195 19.805 7.69 19.805 12 C19.805 16.31 16.31 19.805 12 19.805 C7.69 19.805 4.195 16.31 4.195 12 Z" style="fill:#12a115"/>
+<path d="M5.346 12 C5.346 8.267 8.372 5.241 12.105 5.241 C15.838 5.241 18.864 8.267 18.864 12 C18.864 15.733 15.838 18.759 12.105 18.759 C8.372 18.759 5.346 15.733 5.346 12 Z" style="fill:#12a115;stroke:#232323;stroke-width:0.25;stroke-miterlimit:10"/>
+<path d="M23.277 11.85 C23.277 18.161 18.161 23.277 11.85 23.277 C5.539 23.277 0.423 18.161 0.423 11.85 C0.423 5.539 5.539 0.423 11.85 0.423 C18.161 0.423 23.277 5.539 23.277 11.85 Z" style="fill:#303030;fill-rule:evenodd;display:none"/>
+<path d="M22.888 14.808 C21.255 20.9 14.985 24.52 8.892 22.888 C2.8 21.255 -0.82 14.985 0.812 8.892 C2.445 2.8 8.715 -0.82 14.808 0.812 C20.9 2.445 24.52 8.715 22.888 14.808 Z M22.667 14.749 C21.068 20.719 14.922 24.267 8.951 22.667 C2.981 21.068 -0.567 14.922 1.033 8.951 C2.632 2.981 8.778 -0.567 14.749 1.033 C20.719 2.632 24.267 8.778 22.667 14.749 Z" style="fill:#3e3e3e;fill-rule:evenodd;display:none"/>
+<path d="M6.802 2.228 L17.66 2.667 L22.708 12.29 L16.898 21.472 L6.04 21.033 L0.992 11.41 Z" style="fill:#434343;fill-rule:evenodd;display:none"/>
+<path d="M22.441 12.286 L16.768 21.24 L6.177 20.805 L1.259 11.414 L6.932 2.46 L17.523 2.895 Z" style="fill:#404040;fill-rule:evenodd;display:none"/>
+<path id="Circulo_Gris" data-name="Circulo Gris" serif:id="Circulo Gris" d="M19.595 11.85 C19.595 16.127 16.127 19.595 11.85 19.595 C7.573 19.595 4.105 16.127 4.105 11.85 C4.105 7.573 7.573 4.105 11.85 4.105 C16.127 4.105 19.595 7.573 19.595 11.85 Z" style="fill:#202020;fill-rule:evenodd;display:none"/>
+<g id="Anillo_Verde" data-name="Anillo Verde" serif:id="Anillo Verde" style="display:none">
+<path d="M7.074 7.074 C9.71 4.438 13.99 4.438 16.626 7.074 C19.262 9.71 19.262 13.99 16.626 16.626 C13.99 19.262 9.71 19.262 7.074 16.626 C4.438 13.99 4.438 9.71 7.074 7.074 Z M7.265 7.265 C9.795 4.734 13.905 4.734 16.435 7.265 C18.966 9.795 18.966 13.905 16.435 16.435 C13.905 18.966 9.795 18.966 7.265 16.435 C4.734 13.905 4.734 9.795 7.265 7.265 Z" style="fill:#12a115;fill-rule:evenodd"/>
+</g>
+<path d="M17.364 11.85 C17.364 14.895 14.895 17.364 11.85 17.364 C8.805 17.364 6.336 14.895 6.336 11.85 C6.336 8.805 8.805 6.336 11.85 6.336 C14.895 6.336 17.364 8.805 17.364 11.85 Z" style="fill:#101010;fill-rule:evenodd;display:none"/>
+<path d="M6.037 12 C6.037 8.707 8.707 6.037 12 6.037 C15.293 6.037 17.963 8.707 17.963 12 C17.963 15.293 15.293 17.963 12 17.963 C8.707 17.963 6.037 15.293 6.037 12 Z" style="fill:#080808"/>
+</g>
 </svg>

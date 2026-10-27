@@ -24,7 +24,7 @@ Se elige **B**: mismos 4 conversores para cualquier patrón de bandas, un único
 coeficientes deben recalcularse con la frecuencia real (`fs = sampleRate · factor`), lo que obliga a
 mover su configuración a `onSampleRateChange()` + `applyOversampling()` y **resuelve C3**.
 
-El factor es **4x por defecto**. `1x` conserva la ruta DSP clásica sin conversión ni latencia.
+El factor es **1x (off) por defecto**; el oversampling es opt-in. `1x` conserva la ruta DSP clásica sin conversión ni latencia.
 
 ---
 
@@ -86,11 +86,11 @@ IN_L/R
 | Aspecto | Implementación |
 |---|---|
 | Selección | menú contextual del módulo: `SaturatorWidget::appendContextMenu()` → `createIndexSubmenuItem("Oversampling", {"Off (1x)", "2x", "4x", "8x"}, ...)` (radio con check) |
-| Defecto | **4x** (`int oversampling = 4`) |
+| Defecto | **1x (off)** (`int oversampling = 1`) |
 | Hilo UI/JSON | `setOversampling(factor)` valida (1/2/4/8), ignora si no cambia y sólo escribe `pendingOversampling` |
 | Hilo de audio | al principio del siguiente bloque, `process()` consume `pendingOversampling` y llama a `applyOversampling()`: resetea etapa, filtros, buffers dry e índice, y recalcula coeficientes |
-| Persistencia | `dataToJson()` → `{"oversampling": n}`; `dataFromJson()` lee la clave, valor inválido → 4 |
-| Patches antiguos | sin la clave ⇒ se queda el defecto **4x** (no hay migración ni error) |
+| Persistencia | `dataToJson()` → `{"oversampling": n}`; `dataFromJson()` lee la clave, valor inválido → 1 |
+| Patches antiguos | sin la clave ⇒ se queda el defecto **1x (off)** (no hay migración ni error) |
 | Compatibilidad | **no** se tocan `ParamIds`, `InputIds`, `OutputIds` ni `LightIds`; ningún parámetro nuevo |
 | Panel | sin control dedicado (no hay hueco en el panel): oversampling sólo por menú contextual |
 
@@ -131,7 +131,7 @@ Lecturas:
 | Limitación | Detalle / mitigación |
 |---|---|
 | **Click al cambiar de factor** | `applyOversampling()` resetea FIRs, biquads y buffers dry. Es un cambio de configuración, no un parámetro automatizable; si molesta, bajar MIX/OUTPUT durante el cambio |
-| **CPU ~lineal con el factor** | El coste DSP por muestra base crece aproximadamente ×N (2x ≈2×, 8x ≈8×) más el FIR; no hay cifra medida de % de CPU, sólo la tendencia. El uso por defecto es 4x |
+| **CPU ~lineal con el factor** | El coste DSP por muestra base crece aproximadamente ×N (2x ≈2×, 8x ≈8×) más el FIR; no hay cifra medida de % de CPU, sólo la tendencia. El uso por defecto es 1x (off) |
 | **Rolloff a 20 kHz** | El FIR corta en 22.8 kHz: −3.89 dB @20 kHz (−0.12 dB @15 kHz). audible sólo en el extremo superior; bajar `OS_CUTOFF` empeora el rolloff |
 | **Alias residual cerca de Nyquist** | El primer lóbulo de alias del FIR (25 kHz → 23 kHz a 4x) deja ~−25 dB por encima de 20 kHz (inaudible). `OS_CUTOFF = 0.8` lo lleva a ~−43 dB a cambio de −1.9 dB @15 kHz y −6.4 dB @20 kHz |
 | **`tanh` es una no linealidad sin memoria** | Genera armónicos por encima de `4·fs/2` que pliegan **dentro del propio dominio sobremuestreado**; por eso 8x mejora ~10 dB más que 4x. No se elimina con más calidad de FIR, sólo con más factor |
@@ -143,8 +143,8 @@ Lecturas:
 ## 7. Criterios de aceptación verificables
 
 1. **Build**: `export PATH=/mingw64/bin:$PATH; RACK_DIR=/c/Rack-SDK2.6.6 make clean && make` →
-   0 errores, 0 warnings; `make dist` genera `dist/Coal_Dynamics-2.1.0-win-x64.vcvplugin`.
-2. **Defecto**: módulo nuevo sin patch → `oversampling == 4` y el submenú marca **4x**.
+   0 errores, 0 warnings; `make dist` genera `dist/Coal_Dynamics-2.2.1-win-x64.vcvplugin`.
+2. **Defecto**: módulo nuevo sin patch → `oversampling == 1` y el submenú marca **Off (1x)**.
 3. **UI**: clic derecho → `Oversampling` muestra las cuatro opciones; seleccionar una cambia el check y
    el audio en el siguiente bloque (con DRIVE alto y señal aguda el cambio de alias es audible).
 4. **Latencia**: impulso a la entrada → el pico del wet aparece en la muestra **15** para 2x, 4x y 8x, y
@@ -152,7 +152,7 @@ Lecturas:
 5. **Alias**: con la configuración de §5, 4x ≤ **−32 dB** y 8x ≤ **−43 dB**; 1x se mantiene en ~−15 dB.
 6. **FIR**: 0.00 dB hasta 10 kHz, ≥ −0.2 dB @15 kHz, ≥ −4.0 dB @20 kHz (tolerancia ±0.5 dB sobre §5).
 7. **Persistencia**: guardar con 8x → recargar el patch → sigue en 8x; un patch sin la clave
-   `oversampling` carga en **4x**; un valor inválido (`3`, `0`, negativo) cae a 4x.
+   `oversampling` carga en **1x (off)**; un valor inválido (`3`, `0`, negativo) cae a 1x.
 8. **Compatibilidad**: `git diff` no muestra cambios en los enums de IDs; un patch de v2.0.1 carga sin
    reasignar parámetros ni entradas.
 9. **1x**: sin conversión ni latencia; la ruta DSP coincide con la de v2.0.1 (mismos crossovers, drive,
