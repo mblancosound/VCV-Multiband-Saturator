@@ -446,13 +446,22 @@ void pushLinkCurvesHistory(Saturator *saturator, bool state) {
 | 11 | `make clean && make` | 0 warnings / 0 errores con `-Wall -Wextra` (gate del repo). |
 | 12 | `make dist` con plugin.json 2.5.0 | `dist/Coal_Dynamics-2.5.0-win-x64.vcvplugin` (nombre con la versión del json). |
 
+**Estado de verificación (2026-10-27).** Probados en Rack 2.6.6 con el build de v2.5.0, sin errores:
+**1** (activar el modo: check visible y curvas intactas), **2** (cambio enlazado desde Low: las tres
+bandas cambian y el lema es "Undo change curves"), **3 parcial** (un solo Ctrl+Z restaura las tres; no
+se probó Ctrl+Shift+Z), **6** (desactivar: cada banda vuelve a ser independiente) y **8 parcial**
+(guardar con el modo ON y recargar: el check reaparece; un patch v2.4.0 carga con el modo off). El
+gate de build (**11**) lo cubre `make clean && make` → 0 warnings / 0 errores, y el nombre del paquete
+(**12**) `make dist`. **Pendientes de prueba manual: 3 (Ctrl+Shift+Z), 4, 5, 7, 9, 10 y los valores
+inválidos de 8.**
+
 ## Riesgos
 
-- **`action->name = "change curves"` muta el campo de una acción ya `new`-ed**
-  antes de `push()` — es escritura legal (campo público de `Action`,
-  history.hpp) y ocurre antes de que el historial la consuma; sin carrera (solo
-  hilo de UI). Riesgo residual: si un fork de Rack hace `name` privado, compilar
-  la clase propia substituta (clon con nombre) es el plan B de 15 líneas.
+- **Lema de historial pasado por parámetro** (tras el refactor de J2): `name` se
+  fija dentro de `applyCurvesAndPush()` a partir del `const char *` del call site,
+  antes del `push()`. Ya no hay reasignación tras `new`. Riesgo residual: si se
+  añade un tercer llamador, debe pasar su propio lema; el default del constructor
+  (`MultiCurveAction`) es `"change curves"`.
 - **Ambigüedad si el usuario activa link estando las curvas distintas**: no
   queda claro qué curva queda hasta el siguiente cambio. Mitigado con B (sin
   copia al activar) + item visible al frente del grupo de curvas.
