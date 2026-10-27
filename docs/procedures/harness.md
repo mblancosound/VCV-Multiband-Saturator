@@ -16,7 +16,7 @@ esta máquina (Windows + MSYS2); no se aceptan comandos «probables».
 | Mapeo y verificación rápida | `auditor` | `opencode/nemotron-3.5-lightning-free` | solo lectura |
 | Implementación | `local-coder` | `ollama/qwen3:8b` (`num_ctx 16384`) | `edit: allow`, `bash: ask` |
 | Desborde (2 escritores más) | `general` | built-in | `edit: allow` |
-| Juez J1 (correctitud) | `judge-correctness` | `opencode/nemotron-3-ultra-free` | solo lectura, `webfetch: deny` |
+| Juez J1 (correctitud) | `judge-correctness` | `opencode/nemotron-3.5-super-vl-free` | solo lectura, `webfetch: deny` |
 | Juez J2 (simplicidad) | `judge-simplicity` | `opencode/glm-5.3-flash-free` | solo lectura, `webfetch: deny` |
 
 Los jueces tienen `hidden: true`: no aparecen en la lista de subagentes del orquestador, pero **sí son
