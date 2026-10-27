@@ -6,7 +6,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin slug: `Coal_Dynamics`
 - Module: `Multiband Saturator` (`Multiband_Saturator`)
-- Version: `2.4.0`
+- Version: `2.5.0`
 - License: MIT (see `LICENSE.txt`)
 
 ## Features
@@ -41,8 +41,9 @@ from asymmetric curves (Diode/Tube) at the cost of about −1.9 dB at 20 Hz.
 
 Right-click the module → **Low Curve** / **Mid Curve** / **High Curve** → curve. The active curve is shown
 with a radio check. The setting is saved in the patch as `"curves": [low, mid, high]`; old patches without
-the key load in **Tanh**. Setting it is undoable with **Ctrl+Z** (v2.4.0). Changing the curve can
-produce a **click**: it is a setup control, with no crossfade.
+the key load in **Tanh**. Setting it is undoable with **Ctrl+Z** (v2.4.0); with **Link curves**
+enabled the change applies to all three bands at once (v2.5.0). Changing the curve can produce a
+**click**: it is a setup control, with no crossfade.
 
 | Curve | Character | Note |
 | --- | --- | --- |
@@ -81,19 +82,25 @@ Right-click the module:
   setting, so `MIX = 0` gives silence. The transition is ramped over ~5 ms (no click) and saved in
   the patch as `"solo": -1|0|1|2` (`-1` = Off). Old patches without the key load in `Off`; an
   invalid value also falls back to `Off`.
+- **Link curves** (check): while enabled, changing the curve on any band applies it to all three, as a
+  single undo entry (*Undo change curves*). Enabling it does **not** overwrite the existing curves: it
+  only affects later changes (use **Copy Curve** to unify them right away). Saved in the patch as
+  `"linkCurves": true|false`; old patches without the key, or with an invalid value, load with it off.
 - **Copy Curve** → `Low to all` / `Mid to all` / `High to all`. Copies the current curve of that
   band to the three bands. It uses the existing `"curves"` key, so nothing new is saved. It can
   click, exactly like picking a curve by hand.
-- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.4.0` — sample rate, oversampling
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.5.0` — sample rate, oversampling
   factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 The saturation lights keep metering each band **before** the solo, so a muted band still shows its
 saturation level.
 
-**Undo (v2.4.0).** The context-menu actions — curve change, **Copy Curve** (as one single history
-entry), **Solo** and **Oversampling** — are undoable with **Ctrl+Z** and redoable with
-**Ctrl+Shift+Z**, using Rack's standard history (e.g. *Undo change curve*). Re-selecting an already
-active option creates no history entry, and loading a patch is never recorded as an undoable action.
+**Undo (v2.4.0, extended in v2.5.0).** The context-menu actions — curve change, the linked change (one
+single entry for the three bands), **Copy Curve** (also one single entry), **Solo**, **Oversampling**
+and the **Link curves** toggle — are undoable with **Ctrl+Z** and redoable with **Ctrl+Shift+Z**,
+using Rack's standard history (e.g. *Undo change curve*, *Undo change curves*, *Undo toggle link
+curves*). Re-selecting an already active option creates no history entry, and loading a patch is never
+recorded as an undoable action.
 
 ## Requirements
 
@@ -138,7 +145,7 @@ LICENSE.txt
 ## Install (from source)
 
 1. `make dist`
-2. Copy `dist/Coal_Dynamics-2.4.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
+2. Copy `dist/Coal_Dynamics-2.5.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
 3. Restart Rack.
 
 ## License

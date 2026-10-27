@@ -69,14 +69,15 @@ struct CurveAction : history::ModuleAction {
   }
 };
 
-/** Copy Curve: las tres bandas en UNA sola entrada de historial. Guarda los
-    tres identificadores originales; con una clase propia se evita depender de
+/** Las tres bandas en UNA sola entrada de historial: la usan Copy Curve
+    ("copy curve") y el cambio enlazado ("change curves"). Guarda los tres
+    identificadores originales; con una clase propia se evita depender de
     ComplexAction y de su orden de undo. */
-struct CopyCurveAction : history::ModuleAction {
+struct MultiCurveAction : history::ModuleAction {
   int oldCurves[3] = {};
   int newCurve = 0;
 
-  CopyCurveAction() { name = "copy curve"; }
+  MultiCurveAction() { name = "change curves"; }
 
   void undo() override {
     Saturator *s = saturatorFromModuleId(moduleId);
@@ -117,6 +118,30 @@ struct SoloAction : history::ModuleAction {
   }
 };
 
+/** Cambio del modo link curves. Es un modo y no un cambio de sonido, pero pasa
+    por el historial como el resto del menu (v2.4.0): asi Ctrl+Z lo deshace y el
+    patch queda marcado como modificado, igual que curvas, solo y oversampling. */
+struct LinkCurvesAction : history::ModuleAction {
+  bool oldState = false;
+  bool newState = false;
+
+  LinkCurvesAction() { name = "toggle link curves"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->linkCurves = oldState;
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->linkCurves = newState;
+  }
+};
+
 /** Cambio de oversampling (1/2/4/8). */
 struct OversamplingAction : history::ModuleAction {
   int oldFactor = 1;
@@ -141,24 +166,12 @@ struct OversamplingAction : history::ModuleAction {
 
 // --- Helpers de los menus: aplicar + registrar (o no-op si no cambia) -------
 
-void pushCurveHistory(Saturator *saturator, int band, int newCurve) {
-  int oldCurve = saturator->curves[band].load();
-  if (oldCurve == newCurve)
-    return;
-  saturator->setCurve(band, newCurve);
-
-  CurveAction *action = new CurveAction;
-  action->moduleId = saturator->id;
-  action->band = band;
-  action->oldCurve = oldCurve;
-  action->newCurve = newCurve;
-  APP->history->push(action);
-}
-
-void pushCopyCurveHistory(Saturator *saturator, int src) {
-  int newCurve = saturator->curves[src].load();
-  int oldCurves[3] = {saturator->curves[0].load(), saturator->curves[1].load(),
-                      saturator->curves[2].load()};
+/** Escribe newCurve en las tres bandas y registra UNA sola entrada de
+    historial (no-op si las tres ya valen newCurve). `name` es el lema visible:
+    "copy curve" desde Copy Curve, "change curves" desde un cambio enlazado.
+    Unico punto de verdad del no-op de las tres bandas. */
+void applyCurvesAndPush(Saturator *saturator, const int oldCurves[3],
+                        int newCurve, const char *name) {
   bool changed = false;
   for (int b = 0; b < 3; b++) {
     if (oldCurves[b] != newCurve)
@@ -169,12 +182,57 @@ void pushCopyCurveHistory(Saturator *saturator, int src) {
   for (int b = 0; b < 3; b++)
     saturator->setCurve(b, newCurve);
 
-  CopyCurveAction *action = new CopyCurveAction;
+  MultiCurveAction *action = new MultiCurveAction;
   action->moduleId = saturator->id;
   for (int b = 0; b < 3; b++)
     action->oldCurves[b] = oldCurves[b];
   action->newCurve = newCurve;
+  action->name = name;
   APP->history->push(action);
+}
+
+void pushCurveHistory(Saturator *saturator, int band, int newCurve) {
+  int oldCurves[3] = {saturator->curves[0].load(), saturator->curves[1].load(),
+                      saturator->curves[2].load()};
+
+  if (!saturator->linkCurves) {
+    // Sin link: solo la banda elegida (curva por banda, v2.2.0/v2.4.0).
+    if (oldCurves[band] == newCurve)
+      return;
+    saturator->setCurve(band, newCurve);
+
+    CurveAction *action = new CurveAction;
+    action->moduleId = saturator->id;
+    action->band = band;
+    action->oldCurve = oldCurves[band];
+    action->newCurve = newCurve;
+    APP->history->push(action);
+    return;
+  }
+
+  // Con link: las tres bandas toman la curva elegida, use el selector que use
+  // el usuario. UNA sola entrada ("Undo change curves") que restaura las 3.
+  applyCurvesAndPush(saturator, oldCurves, newCurve, "change curves");
+}
+
+void pushLinkCurvesHistory(Saturator *saturator, bool state) {
+  bool oldState = saturator->linkCurves;
+  if (oldState == state)
+    return;
+  saturator->linkCurves = state;
+
+  LinkCurvesAction *action = new LinkCurvesAction;
+  action->moduleId = saturator->id;
+  action->oldState = oldState;
+  action->newState = state;
+  APP->history->push(action);
+}
+
+void pushCopyCurveHistory(Saturator *saturator, int src) {
+  int newCurve = saturator->curves[src].load();
+  int oldCurves[3] = {saturator->curves[0].load(), saturator->curves[1].load(),
+                      saturator->curves[2].load()};
+  applyCurvesAndPush(saturator, oldCurves, newCurve, "copy curve");
 }
 
 void pushSoloHistory(Saturator *saturator, int band) {
@@ -325,6 +383,20 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
       }));
 
   menu->addChild(new ui::MenuSeparator);
+
+  // Modo link curves (v2.5.0): mientras este activo, cambiar Low/Mid/High
+  // aplica la curva a las tres bandas. Activarlo NO copia Low a las otras
+  // dos: solo gobierna los cambios siguientes (activar el modo no debe
+  // destruir dos curvas que el usuario no ha pedido cambiar; para eso esta
+  // Copy Curve). El toggle SI es undoable ("toggle link curves"), como el
+  // resto del menu, y se guarda con el patch ("linkCurves"). API real, no
+  // inventada: createBoolMenuItem(text, rightText, getter, setter, ...) en
+  // helpers.hpp 299-304 (wrapper con checkmark de createCheckMenuItem 254),
+  // que invoca setter(!getter()), es decir, el estado nuevo.
+  menu->addChild(createBoolMenuItem(
+      "Link curves", "", [=]() { return saturator->linkCurves; },
+      [=](bool state) { pushLinkCurvesHistory(saturator, state); }));
+
   menu->addChild(createIndexSubmenuItem(
       "Low Curve", coaldynamics::curveNames(),
       [=]() { return (size_t) saturator->curves[0].load(); },

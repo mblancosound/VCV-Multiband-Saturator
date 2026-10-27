@@ -190,6 +190,10 @@ json_t *Saturator::dataToJson() {
 
   json_object_set_new(rootJ, "solo", json_integer(solo.load()));
 
+  // Modo link curves (v2.5.0). Siempre se escribe; la lectura (dataFromJson)
+  // es estricta: solo true/false JSON cambia el modo.
+  json_object_set_new(rootJ, "linkCurves", json_boolean(linkCurves));
+
   return rootJ;
 }
 
@@ -227,6 +231,15 @@ void Saturator::dataFromJson(json_t *rootJ) {
   if (soloValue < -1 || soloValue > 2)
     soloValue = -1;
   setSolo(soloValue);
+
+  // Modo link curves: sin la clave -> off (default; un patch v2.4.0 no trae
+  // la clave y carga con el modo off, sin cambios de curvas). No booleano
+  // ("x", 1, "true" como string) -> off. Solo exactamente true/false cambia
+  // el modo, igual de estricto que "solo". Sin historial: cargar un patch no
+  // es una accion de usuario (regla v2.4.0).
+  json_t *linkJ = json_object_get(rootJ, "linkCurves");
+  linkCurves =
+      (linkJ && json_is_boolean(linkJ)) ? json_boolean_value(linkJ) : false;
 }
 
 /** Procesa un bloque de Stage::FACTOR submuestras: filtros + curva + pan/vol a

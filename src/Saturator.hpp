@@ -101,6 +101,12 @@ struct Saturator : Module {
       la escriben; el hilo de audio la lee una vez por bloque. */
   std::atomic<int> curves[3];
 
+  /** Modo "link curves": si esta activo, un cambio de curva desde el menu
+      (Low/Mid/High) aplica la curva a las tres bandas de una vez. Lo escriben
+      la UI (toggle del menu) y el JSON; el hilo de audio nunca lo lee. Por
+      defecto false: un patch antiguo sin la clave carga con el modo off. */
+  bool linkCurves = false;
+
   /** Solo por banda: -1 = Off, 0 = Low, 1 = Mid, 2 = High. La UI y el JSON
       lo escriben con setSolo(); el audio lo lee cada muestra base. */
   std::atomic<int> solo{-1};
