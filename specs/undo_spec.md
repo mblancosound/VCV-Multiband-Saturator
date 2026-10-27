@@ -185,6 +185,11 @@ latencia (sigue 15 muestras a 2x/4x/8x).
 | 8 | Borrar el módulo con cambios en el historial, Ctrl+Z | No crash. El undo de "add module" de Rack gobierna. |
 | 9 | `make` | 0 warnings con `-Wall -Wextra` (gate del repo). |
 
+**Estado de verificación (2026-10-27).** Los 9 casos se han probado en Rack 2.6.6 con el build de
+v2.4.0 y funcionan sin error aparente, incluido el caso 5 (Ctrl+Z antes de que el audio aplique el
+cambio): el módulo se queda en 1x y no queda ninguna petición huérfana. El caso 9 lo cubre el gate
+automático (`make clean && make` → 0 warnings / 0 errores).
+
 ## Riesgos
 
 - **Carrera de `pendingOversampling`** (caso 5): **corregida** en esta tanda con
@@ -196,7 +201,8 @@ latencia (sigue 15 muestras a 2x/4x/8x).
   undo/redo alternados; es el comportamiento estándar de Rack (igual que con los
   params nativos). Comportamiento esperable para el usuario.
 - **Perf**: registrar una acción es O(1) y solo al click; sin coste DSP añadido.
-  `process()` queda byte-igual.
+  `process()` solo cambia el consumo de `pendingOversampling` (ver «Corrección de
+  la carrera»); el resto del camino de audio queda igual.
 
 ## Checks finales para el agente implementador (antes del commit)
 
