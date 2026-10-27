@@ -18,7 +18,9 @@ Añadir al menú contextual del módulo, **sin params nuevos, sin tocar panel/SV
 - `res/` (SVGs).
 - Rampa/crossfade en el cambio de curva (solo se aplica a Solo; el click de curva sigue aceptado, ver `README.md` §Curves).
 - Bypass/estado "transparente" (C5) y ley de drive (C6): fuera de alcance, no se toca `specs/multiband_saturator_spec.md` (sus filas C5/C6 no aplican a esta feature).
-- CC/NoUndoManager: los setters del menú no son undoables (coherente con curvas y oversampling en 2.2.1).
+- CC/NoUndoManager: en v2.3.0 los setters del menú no eran undoables (coherente con curvas y
+  oversampling en 2.2.1). **Estado actual**: desde v2.4.0 sí lo son, y v2.5.0 añade el toggle de
+  Link curves; ver `undo_spec.md` y `link_curves_spec.md`.
 
 ## 3. Decisiones (cerradas)
 

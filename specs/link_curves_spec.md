@@ -14,7 +14,8 @@ de las tres a la vez, con UNA sola entrada de undo que restaura las tres bandas.
 ## Alcance
 
 - `src/SaturatorWidget.cpp`: toggle del menú (item con check) + `pushCurveHistory()`
-  que, con el modo activo, escribe las 3 bandas y registra `CopyCurveAction`.
+  que, con el modo activo, escribe las 3 bandas y registra `MultiCurveAction` a
+  través de `applyCurvesAndPush()`.
 - `src/Saturator.hpp` + `src/Saturator.cpp` (misma unidad): miembro
   `bool linkCurves` + clave JSON `"linkCurves"`.
 - `plugin.json`: bump a **2.5.0**. `README.md`: frase del modo (mismo commit).
@@ -36,7 +37,7 @@ de las tres a la vez, con UNA sola entrada de undo que restaura las tres bandas.
 | --- | --- |
 | `createBoolMenuItem(text, rightText, getter, setter, ...)` existe y es el wrapper getter/setter con checkmark (delega en `createCheckMenuItem`, que añade `CHECKMARK_STRING` al `rightText`) | `C:\Rack-SDK2.6.6\include\helpers.hpp` 299–304 y 253–284 |
 | Firma exacta: `template <class TMenuItem = ui::MenuItem> TMenuItem* createBoolMenuItem(std::string text, std::string rightText, std::function<bool()> getter, std::function<void(bool state)> setter, bool disabled = false, bool alwaysConsume = false)` | helpers.hpp 300 |
-| Payload `CopyCurveAction`: `int oldCurves[3]` + `int newCurve`; undo/redo escriben las 3 bandas vía `setCurve()` | `src/SaturatorWidget.cpp` 75–96 |
+| Payload `MultiCurveAction`: `int oldCurves[3]` + `int newCurve`; undo/redo escriben las 3 bandas vía `setCurve()` | `src/SaturatorWidget.cpp` 76–97 |
 | `history::Action::name` es `std::string` **público**: se puede reasignar antes del `push()` | `include\history.hpp` (~31–37, campo público de `Action`) |
 | `history::State::isSaved()` compara `actionIndex` con `savedIndex` (índice de la acción al guardar) | `include\history.hpp` 180, 194 |
 | `json_boolean()` / `json_is_boolean()` / `json_boolean_value()` de jansson | compilados en el prototipo (0/0), jansson |
@@ -75,27 +76,22 @@ o el propio toggle, igual que "Undo bypass module" de Rack. Alcance del link:
 **solo los tres selectores de curva**; Copy Curve, Solo y Oversampling
 conservan sus helpers y lemas exactos.
 
-**D) Undo de un cambio enlazado: reutilizar `CopyCurveAction`, cambiando el
-`name` en el push.** El postcondition de undo/redo es idéntico byte a byte
-(restore `oldCurves[3]` / escribir `newCurve` a las 3): una clase propia sería
-un clon de 26 líneas. El único matiz es el lema, y `name` es un campo público
-de `Action`: tras el `new`, `action->name = "change curves";` antes del
-`push()`. Lema resultante: **"Undo change curves"** (no el engañoso "Undo copy
-curve"; tampoco "Undo change curve" en singular, que ya significa 1 banda).
-`pushCopyCurveHistory()` y `CopyCurveAction` no se tocan. Es UNA sola entrada:
-Ctrl+Z restaura las 3 bandas de golpe (potenciales 3 valores distintos).
+**D) Undo de un cambio enlazado: UNA entrada que restaura las tres bandas.** La
+postcondición de undo/redo es idéntica a la de Copy Curve (restaurar
+`oldCurves[3]` / escribir `newCurve` a las 3), así que no hay clase nueva:
+`CopyCurveAction` se renombró a **`MultiCurveAction`** y ambos caminos pasan por
+el helper **`applyCurvesAndPush(saturator, oldCurves, newCurve, name)`**, que
+concentra el no-op de las tres bandas y el `push()`. El lema se pasa por
+parámetro desde el call site: `"copy curve"` (Copy Curve) y **`"change curves"`**
+(cambio enlazado). Resultado: "Undo change curves" — no el engañoso "Undo copy
+curve", ni el singular "Undo change curve", que ya significa una banda. Un solo
+Ctrl+Z restaura las 3 bandas de golpe (potencialmente 3 valores distintos).
 
-**Revisión aplicada tras el juicio de simplicidad (J2), antes del commit.** El
-bloque «escribir `newCurve` en las 3 bandas + registrar una entrada» se extrajo a
-un helper único `applyCurvesAndPush(saturator, oldCurves, newCurve, name)`, y
-`CopyCurveAction` pasó a llamarse **`MultiCurveAction`** (sirve a los dos casos y
-el lema se pasa por parámetro desde el call site: `"copy curve"` o
-`"change curves"`). Consecuencia: `pushCurveHistory` (rama link) y
-`pushCopyCurveHistory` quedan en una línea cada uno, el no-op de las tres bandas
-tiene un único punto de verdad y desaparece la reasignación de `name` tras
-`new`. El fichero baja de 404 a 394 líneas. Las directivas de «Directivas BUSCAR
-/ SUSTITUIR» se conservan como referencia del primer diseño; el código final es
-esta versión.
+**Nota de implementación.** El refactor de J2 dejó `pushCurveHistory` (rama link)
+y `pushCopyCurveHistory` en una línea cada uno, con el no-op de las tres bandas
+en un único punto de verdad y sin reasignar `name` tras el `new`. El fichero
+perdió ~10 líneas netas (de 467 a 457 líneas totales; 404 → 394 no vacías). El
+diff exacto está en `git show fbdf30d -- src/`.
 
 **E) UI: item con check via `createBoolMenuItem`, colocado al frente del grupo
 de curvas.** Menú queda:
@@ -145,10 +141,11 @@ disjuntas por fichero.
    - **link off** (default): comportamiento v2.4.0 exacto — escribe solo
      `band` y push `CurveAction` ("change curve"); no-op si el valor ya es el
      actual.
-   - **link on**: lee las 3 curvas una vez; si las 3 ya son `newCurve` →
-     no-op (regla v2.4.0, "sin entrada si no cambia"). Escribe las 3 con
-     `setCurve(b, newCurve)` y push `CopyCurveAction` con
-     `name = "change curves"` y `oldCurves[]` por banda.
+   - **link on**: llama a `applyCurvesAndPush(saturator, oldCurves, newCurve,
+     "change curves")`, que lee las 3 curvas una vez; si las 3 ya son
+     `newCurve` → no-op (regla v2.4.0, "sin entrada si no cambia"), y si no,
+     escribe las 3 con `setCurve(b, newCurve)` y registra una
+     `MultiCurveAction` con `oldCurves[]` por banda.
 3. JSON: `"linkCurves"` se escribe SIEMPRE (bool). Entrada estricta:
    solo `json_is_boolean()` cambia el modo; todo lo demás → off. Cargar patch
    no registra historial (regla v2.4.0, intacta).
@@ -176,258 +173,22 @@ Disyunción: U1 (Saturator.hpp+cpp) y U2 (SaturatorWidget.cpp) no comparten
 fichero → escritores en paralelo seguros. U3 no toca código. La spec y el
 prototipo (`%TEMP%\opencode\link_proto`) viven solo aquí (agente).
 
-## Directivas BUSCAR / SUSTITUIR (redactadas, todavía sin aplicar)
+## Implementación final
 
-Aplica en orden U1 → U2 → U3 y luego `make clean && make`.
+El código se aplicó en el commit `fbdf30d` y la fuente de verdad es el propio
+fichero: este spec no lo duplica para que no pueda desincronizarse.
 
-### U1 — `src/Saturator.hpp`
-
-**BUSCAR** (líneas 100–104):
-
-```cpp
-  /** Curva elegida por banda (0 = Low, 1 = Mid, 2 = High). La UI y el JSON
-      la escriben; el hilo de audio la lee una vez por bloque. */
-  std::atomic<int> curves[3];
-
-  /** Solo por banda: -1 = Off, 0 = Low, 1 = Mid, 2 = High. La UI y el JSON
-```
-
-**SUSTITUIR**:
-
-```cpp
-  /** Curva elegida por banda (0 = Low, 1 = Mid, 2 = High). La UI y el JSON
-      la escriben; el hilo de audio la lee una vez por bloque. */
-  std::atomic<int> curves[3];
-
-  /** Modo "link curves": si esta activo, un cambio de curva desde el menu
-      (Low/Mid/High) aplica la curva a las tres bandas de una vez. Lo escriben
-      la UI (toggle del menu) y el JSON; el hilo de audio nunca lo lee. Por
-      defecto false: un patch antiguo sin la clave carga con el modo off. */
-  bool linkCurves = false;
-
-  /** Solo por banda: -1 = Off, 0 = Low, 1 = Mid, 2 = High. La UI y el JSON
-```
-
-### U1 — `src/Saturator.cpp`, `dataToJson()`
-
-**BUSCAR** (líneas 191–193):
-
-```cpp
-  json_object_set_new(rootJ, "solo", json_integer(solo.load()));
-
-  return rootJ;
-```
-
-**SUSTITUIR**:
-
-```cpp
-  json_object_set_new(rootJ, "solo", json_integer(solo.load()));
-
-  // Modo link curves (v2.5.0). Siempre se escribe; la lectura (dataFromJson)
-  // es estricta: solo true/false JSON cambia el modo.
-  json_object_set_new(rootJ, "linkCurves", json_boolean(linkCurves));
-
-  return rootJ;
-```
-
-### U1 — `src/Saturator.cpp`, `dataFromJson()` (final de la función)
-
-**BUSCAR** (líneas 227–230):
-
-```cpp
-  if (soloValue < -1 || soloValue > 2)
-    soloValue = -1;
-  setSolo(soloValue);
-}
-```
-
-**SUSTITUIR**:
-
-```cpp
-  if (soloValue < -1 || soloValue > 2)
-    soloValue = -1;
-  setSolo(soloValue);
-
-  // Modo link curves: sin la clave -> off (default; un patch v2.4.0 no trae
-  // la clave y carga con el modo off, sin cambios de curvas). No booleano
-  // ("x", 1, "true" como string) -> off. Solo exactamente true/false cambia
-  // el modo, igual de estricto que "solo". Sin historial: cargar un patch no
-  // es una accion de usuario (regla v2.4.0).
-  json_t *linkJ = json_object_get(rootJ, "linkCurves");
-  linkCurves =
-      (linkJ && json_is_boolean(linkJ)) ? json_boolean_value(linkJ) : false;
-}
-```
-
-### U2 — `src/SaturatorWidget.cpp`, helper `pushCurveHistory()`
-
-**BUSCAR** (líneas 144–156, el helper entero):
-
-```cpp
-void pushCurveHistory(Saturator *saturator, int band, int newCurve) {
-  int oldCurve = saturator->curves[band].load();
-  if (oldCurve == newCurve)
-    return;
-  saturator->setCurve(band, newCurve);
-
-  CurveAction *action = new CurveAction;
-  action->moduleId = saturator->id;
-  action->band = band;
-  action->oldCurve = oldCurve;
-  action->newCurve = newCurve;
-  APP->history->push(action);
-}
-```
-
-**SUSTITUIR**:
-
-```cpp
-void pushCurveHistory(Saturator *saturator, int band, int newCurve) {
-  int oldCurves[3] = {saturator->curves[0].load(), saturator->curves[1].load(),
-                      saturator->curves[2].load()};
-
-  if (!saturator->linkCurves) {
-    // Sin link: solo la banda elegida (curva por banda, v2.2.0/v2.4.0).
-    if (oldCurves[band] == newCurve)
-      return;
-    saturator->setCurve(band, newCurve);
-
-    CurveAction *action = new CurveAction;
-    action->moduleId = saturator->id;
-    action->band = band;
-    action->oldCurve = oldCurves[band];
-    action->newCurve = newCurve;
-    APP->history->push(action);
-    return;
-  }
-
-  // Con link: las tres bandas toman la curva elegida, use el selector que
-  // use el usuario. UNA sola entrada de historial que restaura las 3 bandas.
-  // Reutiliza el payload de CopyCurveAction (oldCurves[3] + newCurve): la
-  // postcondicion de undo/redo es identica y una clase nueva seria un clon.
-  // Solo cambia el `name` publico de Action, para que el lema diga
-  // "Undo change curves" y no el engañoso "Undo copy curve" (o el singular
-  // "Undo change curve", que ya significa 1 banda). CopyCurveAction y su
-  // helper de Copy Curve no cambian.
-  bool changed = false;
-  for (int b = 0; b < 3; b++) {
-    if (oldCurves[b] != newCurve)
-      changed = true;
-  }
-  if (!changed)
-    return;
-  for (int b = 0; b < 3; b++)
-    saturator->setCurve(b, newCurve);
-
-  CopyCurveAction *action = new CopyCurveAction;
-  action->moduleId = saturator->id;
-  for (int b = 0; b < 3; b++)
-    action->oldCurves[b] = oldCurves[b];
-  action->newCurve = newCurve;
-  action->name = "change curves";
-  APP->history->push(action);
-}
-```
-
-### U2 — `src/SaturatorWidget.cpp`, acción `LinkCurvesAction`
-
-**Insertar** ANTES de la línea `/** Cambio de oversampling (1/2/4/8). */`:
-
-```cpp
-/** Cambio del modo link curves. Es un modo y no un cambio de sonido, pero pasa
-    por el historial como el resto del menu (v2.4.0): asi Ctrl+Z lo deshace y el
-    patch queda marcado como modificado, igual que curvas, solo y oversampling. */
-struct LinkCurvesAction : history::ModuleAction {
-  bool oldState = false;
-  bool newState = false;
-
-  LinkCurvesAction() { name = "toggle link curves"; }
-
-  void undo() override {
-    Saturator *s = saturatorFromModuleId(moduleId);
-    if (!s)
-      return;
-    s->linkCurves = oldState;
-  }
-
-  void redo() override {
-    Saturator *s = saturatorFromModuleId(moduleId);
-    if (!s)
-      return;
-    s->linkCurves = newState;
-  }
-};
-```
-
-### U2 — `src/SaturatorWidget.cpp`, helper `pushLinkCurvesHistory()`
-
-**Insertar** ANTES de la línea `void pushCopyCurveHistory(Saturator *saturator, int src) {`:
-
-```cpp
-void pushLinkCurvesHistory(Saturator *saturator, bool state) {
-  bool oldState = saturator->linkCurves;
-  if (oldState == state)
-    return;
-  saturator->linkCurves = state;
-
-  LinkCurvesAction *action = new LinkCurvesAction;
-  action->moduleId = saturator->id;
-  action->oldState = oldState;
-  action->newState = state;
-  APP->history->push(action);
-}
-```
-
-### U2 — `src/SaturatorWidget.cpp`, `appendContextMenu()` (bloque curvas)
-
-**BUSCAR** (líneas 327–331):
-
-```cpp
-  menu->addChild(new ui::MenuSeparator);
-  menu->addChild(createIndexSubmenuItem(
-      "Low Curve", coaldynamics::curveNames(),
-      [=]() { return (size_t) saturator->curves[0].load(); },
-      [=](size_t index) { pushCurveHistory(saturator, 0, (int) index); }));
-```
-
-**SUSTITUIR**:
-
-```cpp
-  menu->addChild(new ui::MenuSeparator);
-
-  // Modo link curves (v2.5.0): mientras este activo, cambiar Low/Mid/High
-  // aplica la curva a las tres bandas. Activarlo NO copia Low a las otras
-  // dos: solo gobierna los cambios siguientes (activar el modo no debe
-  // destruir dos curvas que el usuario no ha pedido cambiar; para eso esta
-  // Copy Curve). El toggle SI es undoable ("toggle link curves"), como el
-  // resto del menu, y se guarda con el patch ("linkCurves"). API real, no
-  // inventada: createBoolMenuItem(text, rightText, getter, setter, ...) en
-  // helpers.hpp 299-304 (wrapper con checkmark de createCheckMenuItem 254),
-  // que invoca setter(!getter()), es decir, el estado nuevo.
-  menu->addChild(createBoolMenuItem(
-      "Link curves", "", [=]() { return saturator->linkCurves; },
-      [=](bool state) { pushLinkCurvesHistory(saturator, state); }));
-
-  menu->addChild(createIndexSubmenuItem(
-      "Low Curve", coaldynamics::curveNames(),
-      [=]() { return (size_t) saturator->curves[0].load(); },
-      [=](size_t index) { pushCurveHistory(saturator, 0, (int) index); }));
-```
-
-(Los items "Mid Curve" y "High Curve" no cambian: ya llaman a
-`pushCurveHistory()`, que ahora contiene el branch del link.)
-
-### U3 — `plugin.json`
-
-**BUSCAR**: `"version": "2.4.0",` → **SUSTITUIR**: `"version": "2.5.0",`
-
-### U3 — `README.md` (extracto orientativo, lo redacta el implementador con su tono)
-
-- Añadir a la lista del menú: **Link curves** (check): "while enabled, changing
-  the curve on any band applies it to all three. Enabling it does not overwrite
-  the existing curves; it only affects later changes. Undoable ('toggle link
-  curves'), like the rest of the menu, and saved with the patch."
-- Bump de la versiónvisible y del nombre del `.vcvplugin` a 2.5.0.
+| Símbolo | Fichero | Función |
+| --- | --- | --- |
+| `Saturator::linkCurves` (`bool`, default `false`) | `src/Saturator.hpp` | modo; lo escriben la UI y el JSON, el hilo de audio no lo lee |
+| `"linkCurves"` en `dataToJson()` / `dataFromJson()` | `src/Saturator.cpp` | se escribe siempre; lectura estricta (`json_is_boolean`), todo lo demás → off |
+| `MultiCurveAction` | `src/SaturatorWidget.cpp` | las tres bandas en una entrada; el lema se pasa por parámetro |
+| `LinkCurvesAction` | `src/SaturatorWidget.cpp` | toggle del modo (`"toggle link curves"`) |
+| `applyCurvesAndPush()` | `src/SaturatorWidget.cpp` | único punto de verdad del no-op de tres bandas y del `push()` |
+| `pushCurveHistory()` | `src/SaturatorWidget.cpp` | una banda sin link; tres bandas con link |
+| `pushLinkCurvesHistory()` | `src/SaturatorWidget.cpp` | registra el toggle (no-op si el estado no cambia) |
+| `pushCopyCurveHistory()` | `src/SaturatorWidget.cpp` | Copy Curve reutiliza el helper con `"copy curve"` |
+| `createBoolMenuItem("Link curves", ...)` | `src/SaturatorWidget.cpp` | check + setter con historial |
 
 ## Tabla de casos verificables (manual, con plugin.dll de la build 2.5.0)
 
@@ -476,7 +237,12 @@ inválidos de 8.**
   comportamiento estándar de Rack y el que el usuario eligió en v2.4.0; no se
   agrupan gestos.
 
-## Checks finales para el agente implementador (antes del commit)
+## Checks del implementador (histórico, previos al commit `fbdf30d`)
+
+Se cumplieron todos en el commit de v2.5.0. El punto 5 se refiere solo a aquel
+commit: en la pasada de coherencia documental posterior se añadieron notas de
+estado a `specs/undo_spec.md` y `specs/context_menu_spec.md`, sin reescribir su
+registro histórico.
 
 1. `make clean && make` → **0 warnings / 0 errores** (tomado como gate).
 2. Los 12 casos de la tabla, con el plugin.dll fresco en Rack 2.6.6.

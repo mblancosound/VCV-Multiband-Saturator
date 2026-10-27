@@ -115,7 +115,8 @@ processBands (crossovers + applyCurve + pan/vol + suma + decimación)
 
 - Tres submenús de primer nivel: `"Low Curve"`, `"Mid Curve"`, `"High Curve"`.
 - `createIndexSubmenuItem(curveNames(), getter, setter)`, radio check, mismo patrón que `"Oversampling"`.
-- Menú no undoable.
+- En v2.2.x el menú no era undoable. Desde **v2.4.0** el cambio de curva es deshacible con
+  Ctrl+Z (ver `undo_spec.md`); v2.5.0 añade el modo Link curves (`link_curves_spec.md`).
 
 ---
 

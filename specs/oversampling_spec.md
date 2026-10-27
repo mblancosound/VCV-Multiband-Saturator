@@ -87,8 +87,8 @@ IN_L/R
 |---|---|
 | Selección | menú contextual del módulo: `SaturatorWidget::appendContextMenu()` → `createIndexSubmenuItem("Oversampling", {"Off (1x)", "2x", "4x", "8x"}, ...)` (radio con check) |
 | Defecto | **1x (off)** (`int oversampling = 1`) |
-| Hilo UI/JSON | `setOversampling(factor)` valida (1/2/4/8), ignora si no cambia y sólo escribe `pendingOversampling` |
-| Hilo de audio | al principio del siguiente bloque, `process()` consume `pendingOversampling` y llama a `applyOversampling()`: resetea etapa, filtros, buffers dry e índice, y recalcula coeficientes |
+| Hilo UI/JSON | `setOversampling(factor)` valida (1/2/4/8), ignora si no cambia y sólo escribe `pendingOversampling` (`std::atomic<int>` desde v2.4.0) |
+| Hilo de audio | al principio del siguiente bloque, `process()` lo consume con `exchange(0)` y llama a `applyOversampling()`, que valida el factor: resetea etapa, filtros, buffers dry e índice, y recalcula coeficientes |
 | Persistencia | `dataToJson()` → `{"oversampling": n}`; `dataFromJson()` lee la clave, valor inválido → 1 |
 | Patches antiguos | sin la clave ⇒ se queda el defecto **1x (off)** (no hay migración ni error) |
 | Compatibilidad | **no** se tocan `ParamIds`, `InputIds`, `OutputIds` ni `LightIds`; ningún parámetro nuevo |

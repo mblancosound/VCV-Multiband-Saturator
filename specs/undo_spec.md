@@ -7,9 +7,11 @@ Base: v2.3.0 (`44c7003`). Prototipo validado compilando el repo copiado en
 
 ## Objetivo
 
-Que las cuatro acciones del menú contextual (cambio de curva, Copy Curve, Solo,
-Oversampling) sean deshacibles/rehacibles con Ctrl+Z / Ctrl+Shift+Z usando el
-historial estándar de Rack (`History`, la misma lista que "Undo move module" etc.).
+Que las acciones del menú contextual de v2.4.0 (cambio de curva, Copy Curve,
+Solo, Oversampling) sean deshacibles/rehacibles con Ctrl+Z / Ctrl+Shift+Z usando
+el historial estándar de Rack (`History`, la misma lista que "Undo move module"
+etc.). v2.5.0 añade una quinta: el toggle **Link curves**, documentado en
+`link_curves_spec.md`.
 
 ## Alcance
 
@@ -49,11 +51,12 @@ historial estándar de Rack (`History`, la misma lista que "Undo move module" et
 
 ## Decisiones cerradas y justificación
 
-**A) Cuatro acciones, no una genérica** (`CurveAction`, `CopyCurveAction`,
-`SoloAction`, `OversamplingAction`): cada una son ~12 líneas de complemento por
-método; una genérica necesitaría `std::function` capturando el puntero del
-módulo —prohibido por el diseño de `history.hpp`— o un enum-dispatching opaco.
-Cuatro clases explícitas son ~90 líneas, legibles y sin capturas colgantes.
+**A) Una acción por operación, no una genérica** (`CurveAction`,
+`MultiCurveAction`, `SoloAction`, `OversamplingAction`; v2.5.0 añade
+`LinkCurvesAction`): cada una son ~12 líneas de complemento por método; una
+genérica necesitaría `std::function` capturando el puntero del módulo —prohibido
+por el diseño de `history.hpp`— o un enum-dispatching opaco. Clases explícitas
+son ~90 líneas, legibles y sin capturas colgantes.
 
 **B) El estado previo se captura en el helper del menú**, leyendo el atómico
 ANTES de llamar al setter, y comparando con el destino. Solo el hilo de UI
@@ -62,7 +65,8 @@ escribir→push es atómica en la práctica. El valor capturado antes = valor re
 de "antes".
 
 **C) Copy Curve = UNA acción con `int oldCurves[3]` + `int newCurve`** (no
-`ComplexAction`). Más directa: 1 entrada de historial garantizada, se integra
+`ComplexAction`). Hoy esa clase es `MultiCurveAction` (v2.5.0). Más directa:
+1 entrada de historial garantizada, se integra
 de forma natural con la regla "no-op si nada cambia" (ComplexAction requerirría
 evaluar `isEmpty()` y gestionar un undone parcial), y su undo es trivial
 (escribir los 3 identificadores antiguos) sin depender del orden inverso de
@@ -85,6 +89,9 @@ acciones al guardar el patch (el `json_t*` de `history.hpp` es solo de
 - `"solo band"` → "Undo solo band".
 - `"change oversampling"` → "Undo change oversampling".
 
+v2.5.0 añade dos más: `"change curves"` → "Undo change curves" (cambio de las tres
+bandas con Link curves activo) y `"toggle link curves"` → "Undo toggle link curves".
+
 **G) El check del submenú tras undo**: basta con que el getter lea el atómico.
 Rack llama al getter cada vez que se abre el submenú, que es cuando el usuario
 puede ver el check. No se necesita `menu->close()` ni refresco.
@@ -102,9 +109,12 @@ la da `Saturator` (ver «Corrección de la carrera»).
 
 **I) Sin entrada si el valor no cambia**: se detecta en el helper antes de
 escribir (comparando valor capturado vs destino; en oversampling se usa el
-valor *efectivo*: `pendingOversampling != 0 ? pendingOversampling :
-oversampling`). Escoger la opción ya activa queda en literalmente no-op
-(sin escritura ni entrada de historial).
+valor *efectivo*, leído UNA sola vez en una variable local: `int pending =
+pendingOversampling.load(); int oldFactor = (pending != 0) ? pending :
+oversampling;`). Así una petición aún no aplicada cuenta como actual, y no se
+comparan dos lecturas distintas si el hilo de audio la consume entre medias.
+Escoger la opción ya activa queda en literalmente no-op (sin escritura ni
+entrada de historial).
 
 ## Contrato por acción
 
@@ -133,7 +143,7 @@ indicador "unsaved changes").
 | `src/Saturator.hpp` | `pendingOversampling` → `std::atomic<int>` | modificar |
 | `src/Saturator.cpp` | `process()` (exchange), `setOversampling()` (store), guarda de validación en `applyOversampling()` | modificar |
 | `plugin.json` | bump `"version"` a `2.4.0` | modificar |
-| `README.md` (ya actualizado en este commit de specs) | frase Ctrl+Z + nota "not undoable" de Curves | hecho |
+| `README.md` | frase Ctrl+Z en *Context menu* + eliminación de la nota "It is not undoable" en *Curves* | hecho |
 
 Disyunción: `SaturatorWidget.cpp` y `Saturator.hpp`/`Saturator.cpp` son paquetes
 de ficheros disjuntos; el `.hpp` y el `.cpp` se serializan entre sí por ser la
