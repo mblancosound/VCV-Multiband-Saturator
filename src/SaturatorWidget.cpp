@@ -2,6 +2,214 @@
 
 #include "plugin.hpp"
 
+// ============================================================================
+// Undo (Ctrl+Z) de las acciones del menu contextual (v2.4.0).
+//
+// Solo SaturatorWidget.cpp: cada menu guarda el valor ANTES de aplicar el
+// cambio y lo registra en el historial de Rack (APP->history->push). Las
+// undo/redo resuelven el modulo por moduleId en cada llamada, porque el
+// puntero capturado en el menu puede quedar colgando si el modulo se borra
+// (regla de history.hpp: "Pointers to Modules... are not allowed in Actions").
+//
+// Confirmado en Rack 2.6.6 (src/history.cpp): State::push() NO ejecuta la
+// accion, solo la registra; el patron es aplicar el cambio y despues push().
+// Ctrl+Z / Ctrl+Shift+Z se resuelven en Scene::onKey -> State::undo().
+// El historial no se serializa con el patch (State no tiene dataToJson), por
+// lo que dataFromJson() nunca registra entradas: cargar un patch no es una
+// accion de usuario.
+//
+// Regla: si el valor elegido ya esta activo, no hay escritura ni entrada de
+// historial (no-op silencioso).
+// ============================================================================
+
+namespace {
+
+/** Resuelve el modulo por su id estable. Si ya no existe (borrado / undo de
+    "add module"), devuelve NULL y los undo/redo son no-op silenciosos, igual
+    que el patron de ParamChange::undo() en history.cpp. */
+Saturator *saturatorFromModuleId(int64_t moduleId) {
+  return dynamic_cast<Saturator *>(APP->engine->getModule(moduleId));
+}
+
+/** Solicita un factor de oversampling desde una undo/redo. Reutiliza
+    setOversampling() (que solo deja pendingOversampling pendiente); si el
+    factor pedido ya es el aplicado, cancela una peticion aun no aplicada (el
+    campo es publico y atomico: Saturator.hpp lo documenta como escrito por la
+    UI y consumido por el hilo de audio). */
+void requestOversampling(Saturator *saturator, int factor) {
+  if (factor == saturator->oversampling) {
+    saturator->pendingOversampling.store(0, std::memory_order_relaxed);
+    return;
+  }
+  saturator->setOversampling(factor);
+}
+
+// --- Acciones de historial (una clase por operacion del menu) ---------------
+
+/** Cambio de curva de una banda (Low/Mid/High). */
+struct CurveAction : history::ModuleAction {
+  int band = 0;
+  int oldCurve = 0;
+  int newCurve = 0;
+
+  CurveAction() { name = "change curve"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setCurve(band, oldCurve);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setCurve(band, newCurve);
+  }
+};
+
+/** Copy Curve: las tres bandas en UNA sola entrada de historial. Guarda los
+    tres identificadores originales; con una clase propia se evita depender de
+    ComplexAction y de su orden de undo. */
+struct CopyCurveAction : history::ModuleAction {
+  int oldCurves[3] = {};
+  int newCurve = 0;
+
+  CopyCurveAction() { name = "copy curve"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    for (int b = 0; b < 3; b++)
+      s->setCurve(b, oldCurves[b]);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    for (int b = 0; b < 3; b++)
+      s->setCurve(b, newCurve);
+  }
+};
+
+/** Cambio de solo (Off: -1, o 0..2). */
+struct SoloAction : history::ModuleAction {
+  int oldSolo = -1;
+  int newSolo = -1;
+
+  SoloAction() { name = "solo band"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setSolo(oldSolo);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setSolo(newSolo);
+  }
+};
+
+/** Cambio de oversampling (1/2/4/8). */
+struct OversamplingAction : history::ModuleAction {
+  int oldFactor = 1;
+  int newFactor = 1;
+
+  OversamplingAction() { name = "change oversampling"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    requestOversampling(s, oldFactor);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    requestOversampling(s, newFactor);
+  }
+};
+
+// --- Helpers de los menus: aplicar + registrar (o no-op si no cambia) -------
+
+void pushCurveHistory(Saturator *saturator, int band, int newCurve) {
+  int oldCurve = saturator->curves[band].load();
+  if (oldCurve == newCurve)
+    return;
+  saturator->setCurve(band, newCurve);
+
+  CurveAction *action = new CurveAction;
+  action->moduleId = saturator->id;
+  action->band = band;
+  action->oldCurve = oldCurve;
+  action->newCurve = newCurve;
+  APP->history->push(action);
+}
+
+void pushCopyCurveHistory(Saturator *saturator, int src) {
+  int newCurve = saturator->curves[src].load();
+  int oldCurves[3] = {saturator->curves[0].load(), saturator->curves[1].load(),
+                      saturator->curves[2].load()};
+  bool changed = false;
+  for (int b = 0; b < 3; b++) {
+    if (oldCurves[b] != newCurve)
+      changed = true;
+  }
+  if (!changed)
+    return;
+  for (int b = 0; b < 3; b++)
+    saturator->setCurve(b, newCurve);
+
+  CopyCurveAction *action = new CopyCurveAction;
+  action->moduleId = saturator->id;
+  for (int b = 0; b < 3; b++)
+    action->oldCurves[b] = oldCurves[b];
+  action->newCurve = newCurve;
+  APP->history->push(action);
+}
+
+void pushSoloHistory(Saturator *saturator, int band) {
+  int oldSolo = saturator->solo.load();
+  if (oldSolo == band)
+    return;
+  saturator->setSolo(band);
+
+  SoloAction *action = new SoloAction;
+  action->moduleId = saturator->id;
+  action->oldSolo = oldSolo;
+  action->newSolo = band;
+  APP->history->push(action);
+}
+
+void pushOversamplingHistory(Saturator *saturator, int factor) {
+  // Valor efectivo: la peticion pendiente cuenta como actual hasta que el
+  // hilo de audio la aplica al principio del siguiente bloque. Se lee UNA vez
+  // (atomico) para no comparar dos lecturas distintas si el audio la consume
+  // entre medias.
+  int pending = saturator->pendingOversampling.load(std::memory_order_relaxed);
+  int oldFactor = (pending != 0) ? pending : saturator->oversampling;
+  if (oldFactor == factor)
+    return;
+  requestOversampling(saturator, factor);
+
+  OversamplingAction *action = new OversamplingAction;
+  action->moduleId = saturator->id;
+  action->oldFactor = oldFactor;
+  action->newFactor = factor;
+  APP->history->push(action);
+}
+
+} // namespace
+
 SaturatorWidget::SaturatorWidget(Saturator *module) {
   setModule(module);
 
@@ -112,29 +320,23 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
         return (size_t) 2;
       },
       [=](size_t index) {
-        if (index == 0)
-          saturator->setOversampling(1);
-        else if (index == 1)
-          saturator->setOversampling(2);
-        else if (index == 2)
-          saturator->setOversampling(4);
-        else
-          saturator->setOversampling(8);
+        static const int factors[4] = {1, 2, 4, 8};
+        pushOversamplingHistory(saturator, factors[index]);
       }));
 
   menu->addChild(new ui::MenuSeparator);
   menu->addChild(createIndexSubmenuItem(
       "Low Curve", coaldynamics::curveNames(),
       [=]() { return (size_t) saturator->curves[0].load(); },
-      [=](size_t index) { saturator->setCurve(0, (int) index); }));
+      [=](size_t index) { pushCurveHistory(saturator, 0, (int) index); }));
   menu->addChild(createIndexSubmenuItem(
       "Mid Curve", coaldynamics::curveNames(),
       [=]() { return (size_t) saturator->curves[1].load(); },
-      [=](size_t index) { saturator->setCurve(1, (int) index); }));
+      [=](size_t index) { pushCurveHistory(saturator, 1, (int) index); }));
   menu->addChild(createIndexSubmenuItem(
       "High Curve", coaldynamics::curveNames(),
       [=]() { return (size_t) saturator->curves[2].load(); },
-      [=](size_t index) { saturator->setCurve(2, (int) index); }));
+      [=](size_t index) { pushCurveHistory(saturator, 2, (int) index); }));
 
   // Solo: -1 = Off, 0 = Low, 1 = Mid, 2 = High (mapeo explicito index<->banda).
   // El solo respeta MIX: silencia el dry y las otras dos bandas con rampa de
@@ -155,21 +357,19 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
             return (size_t) 0;
         }
       },
-      [=](size_t index) { saturator->setSolo((int) index - 1); }));
+      [=](size_t index) { pushSoloHistory(saturator, (int) index - 1); }));
 
   // Copia la curva actual de una banda a las tres. Se guarda con la clave
   // "curves" existente (sin JSON nuevo). Sin crossfade: el click de cambio de
-  // curva esta aceptado, igual que el selector manual (v2.2.1).
+  // curva esta aceptado, igual que el selector manual (v2.2.1). Undo/redo de
+  // las tres bandas como UNA sola entrada de historial (v2.4.0).
   menu->addChild(createSubmenuItem(
       "Copy Curve", "", [=](ui::Menu *menu) {
         static const char *bandNames[3] = {"Low", "Mid", "High"};
         for (int src = 0; src < 3; src++) {
           menu->addChild(createMenuItem(
-              string::f("%s to all", bandNames[src]), "", [=]() {
-                int id = saturator->curves[src].load();
-                for (int b = 0; b < 3; b++)
-                  saturator->setCurve(b, id);
-              }));
+              string::f("%s to all", bandNames[src]), "",
+              [=]() { pushCopyCurveHistory(saturator, src); }));
         }
       }));
 

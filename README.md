@@ -6,7 +6,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin slug: `Coal_Dynamics`
 - Module: `Multiband Saturator` (`Multiband_Saturator`)
-- Version: `2.3.0`
+- Version: `2.4.0`
 - License: MIT (see `LICENSE.txt`)
 
 ## Features
@@ -41,8 +41,8 @@ from asymmetric curves (Diode/Tube) at the cost of about −1.9 dB at 20 Hz.
 
 Right-click the module → **Low Curve** / **Mid Curve** / **High Curve** → curve. The active curve is shown
 with a radio check. The setting is saved in the patch as `"curves": [low, mid, high]`; old patches without
-the key load in **Tanh**. It is not undoable. Changing the curve can produce a **click**: it is a setup
-control, with no crossfade.
+the key load in **Tanh**. Setting it is undoable with **Ctrl+Z** (v2.4.0). Changing the curve can
+produce a **click**: it is a setup control, with no crossfade.
 
 | Curve | Character | Note |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ inputs down to ~±1 while Clean does not. Gain control (per band or OUTPUT_VOL) 
 suffers phase cancellation at 5 kHz. Tanh, bit-identical to v2.1.0, gives −25.9 dB with this method: it is
 not a regression.
 
-## Context menu (v2.3.0)
+## Context menu
 
 Right-click the module:
 
@@ -84,11 +84,16 @@ Right-click the module:
 - **Copy Curve** → `Low to all` / `Mid to all` / `High to all`. Copies the current curve of that
   band to the three bands. It uses the existing `"curves"` key, so nothing new is saved. It can
   click, exactly like picking a curve by hand.
-- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.3.0` — sample rate, oversampling
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.4.0` — sample rate, oversampling
   factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 The saturation lights keep metering each band **before** the solo, so a muted band still shows its
 saturation level.
+
+**Undo (v2.4.0).** The context-menu actions — curve change, **Copy Curve** (as one single history
+entry), **Solo** and **Oversampling** — are undoable with **Ctrl+Z** and redoable with
+**Ctrl+Shift+Z**, using Rack's standard history (e.g. *Undo change curve*). Re-selecting an already
+active option creates no history entry, and loading a patch is never recorded as an undoable action.
 
 ## Requirements
 
@@ -133,7 +138,7 @@ LICENSE.txt
 ## Install (from source)
 
 1. `make dist`
-2. Copy `dist/Coal_Dynamics-2.3.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
+2. Copy `dist/Coal_Dynamics-2.4.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
 3. Restart Rack.
 
 ## License

@@ -105,11 +105,16 @@ void Saturator::setOversampling(int factor) {
     return;
   if (factor == oversampling)
     return;
-  pendingOversampling = factor;
+  pendingOversampling.store(factor, std::memory_order_relaxed);
 }
 
 /** Llamado desde el hilo de audio: limpia estados y recalcula coeficientes. */
 void Saturator::applyOversampling(int factor) {
+  // Defensa: un factor fuera de {1, 2, 4, 8} dejaria fs = 0 en
+  // updateFilterFrequencies() (250.f / 0 -> inf, y NaN en los biquads).
+  if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
+    return;
+
   oversampling = factor;
 
   if (factor == 2)
@@ -304,11 +309,12 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
 }
 
 void Saturator::process(const ProcessArgs &args) {
-  if (pendingOversampling != 0) {
-    int factor = pendingOversampling;
-    pendingOversampling = 0;
-    applyOversampling(factor);
-  }
+  // exchange() consume la peticion de forma atomica: un store de la UI cae o
+  // antes o despues, nunca se pierde ni se lee a medias.
+  const int requestedFactor =
+      pendingOversampling.exchange(0, std::memory_order_relaxed);
+  if (requestedFactor != 0)
+    applyOversampling(requestedFactor);
 
   float inL = inputs[IN_L].getVoltage();
   float inR = inputs[IN_R].isConnected() ? inputs[IN_R].getVoltage() : inL;

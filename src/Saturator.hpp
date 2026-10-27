@@ -92,8 +92,9 @@ struct Saturator : Module {
   /** 1, 2, 4 u 8. Sólo lo escribe applyOversampling() en el hilo de audio.
       Por defecto 1 (off): el oversampling es opt-in. */
   int oversampling = 1;
-  /** Pedido pendiente de aplicar (0 = ninguno). Lo escribe la UI o el JSON. */
-  int pendingOversampling = 0;
+  /** Pedido pendiente de aplicar (0 = ninguno). Lo escribe la UI o el JSON y lo
+      consume el hilo de audio con exchange(), por eso es atómico. */
+  std::atomic<int> pendingOversampling{0};
   float sampleRate = 44100.f;
 
   /** Curva elegida por banda (0 = Low, 1 = Mid, 2 = High). La UI y el JSON
