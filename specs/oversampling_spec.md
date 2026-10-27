@@ -121,6 +121,10 @@ Lecturas:
 - Con `MIX = 0.5` la respuesta es **plana, sin peine**; la diferencia de RMS (−0.5 dB) es atribuible al
   leve filtrado del FIR, no a desalineación.
 - El alias mejora **10.1 dB de 1x a 2x**, **18.1 dB a 4x** y **28.6 dB a 8x**.
+- **Verificado en Rack (2026-10-27)**: misma señal a 1x y a 4x, medida con osciloscopio a la salida del
+  módulo → sin diferencia de nivel ni de forma de onda. Confirma que el dry queda alineado con el wet y
+  que el par up/down no altera la señal en banda. El número exacto (15 muestras) sale de la medición por
+  impulso y correlación, no del osciloscopio, que no resuelve 0.31 ms.
 - Build: `make clean && make` → **0 errores, 0 warnings** (`-Wall -Wextra`); `make dist` →
   `dist/Coal_Dynamics-2.1.0-win-x64.vcvplugin`.
 

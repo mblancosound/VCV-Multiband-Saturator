@@ -102,6 +102,12 @@ Formato exacto: `%.1f kHz | %dx | %d samples | v%s`, p.ej. `48.0 kHz | 1x | 0 sa
 | 12 | Sin allocator/lock en process() | No hay `std::string`, `new`, ni mutex en `process()`/`processBands()` (la math del ramp es branch/min/max) | Revisión de código + profiling opcional |
 | 13 | Medidores | Las 6 luces de saturación siguen respondiendo a su banda **aunque Solo la silencie** | Rack: Solo en una banda y ver la luz de otra saturar |
 
+**Estado de verificación (2026-10-27).** Verificados: **1** (build 0 errores / 0 warnings), **11** y
+**12** (diff de enums y revisión de `process()`). En Rack, con osciloscopio, la misma señal a 1x y a 4x
+no muestra diferencia de nivel ni de forma de onda: eso cierra la alineación dry/wet junto con la
+medición por impulso de `oversampling_spec.md` §5 (15 muestras exactas a 2x/4x/8x, 0 a 1x).
+**Pendientes de prueba audible en Rack: 2–10 y 13.**
+
 ## 9. Riesgos
 
 | Riesgo | Mitigación |
