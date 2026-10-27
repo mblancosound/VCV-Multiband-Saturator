@@ -73,6 +73,8 @@ struct Saturator : Module {
     float driveLow, driveMid, driveHigh;
     float panLow, panMid, panHigh;
     float volLow, volMid, volHigh;
+    /** Ganancia de solo con rampa (0..1) de cada banda, resuelta por muestra base. */
+    float soloGainLow, soloGainMid, soloGainHigh;
     int curveLow, curveMid, curveHigh;
   };
 
@@ -97,6 +99,14 @@ struct Saturator : Module {
   /** Curva elegida por banda (0 = Low, 1 = Mid, 2 = High). La UI y el JSON
       la escriben; el hilo de audio la lee una vez por bloque. */
   std::atomic<int> curves[3];
+
+  /** Solo por banda: -1 = Off, 0 = Low, 1 = Mid, 2 = High. La UI y el JSON
+      lo escriben con setSolo(); el audio lo lee cada muestra base. */
+  std::atomic<int> solo{-1};
+  /** Ganancias del solo con rampa (~5 ms): 0..1 por banda y para el camino
+      dry. Solo hilo de audio; arrancan en 1 y la rampa las lleva al objetivo. */
+  float soloGain[3] = {1.f, 1.f, 1.f};
+  float dryGain = 1.f;
 
   /** DC-blocker de 15 Hz, solo en el camino wet: coeficiente y estado. */
   float dcR = 0.f;
@@ -126,6 +136,8 @@ struct Saturator : Module {
   void setOversampling(int factor);
   /** Llamado desde UI/JSON: valida y publica la curva de una banda. */
   void setCurve(int band, int id);
+  /** Llamado desde UI o JSON: valida -1 (Off) hasta 2 (High) y publica el solo. */
+  void setSolo(int band);
   /** Called from the audio thread: resets state and rebuilds coefficients. */
   void applyOversampling(int factor);
   void updateFilterFrequencies();

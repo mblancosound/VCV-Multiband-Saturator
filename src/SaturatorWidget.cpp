@@ -135,4 +135,51 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
       "High Curve", coaldynamics::curveNames(),
       [=]() { return (size_t) saturator->curves[2].load(); },
       [=](size_t index) { saturator->setCurve(2, (int) index); }));
+
+  // Solo: -1 = Off, 0 = Low, 1 = Mid, 2 = High (mapeo explicito index<->banda).
+  // El solo respeta MIX: silencia el dry y las otras dos bandas con rampa de
+  // ~5 ms; la banda elegida pasa por el knob MIX actual.
+  menu->addChild(new ui::MenuSeparator);
+  menu->addChild(createIndexSubmenuItem(
+      "Solo", {"Off", "Low", "Mid", "High"},
+      [=]() {
+        int band = saturator->solo.load();
+        switch (band) {
+          case 0:
+            return (size_t) 1;
+          case 1:
+            return (size_t) 2;
+          case 2:
+            return (size_t) 3;
+          default:
+            return (size_t) 0;
+        }
+      },
+      [=](size_t index) { saturator->setSolo((int) index - 1); }));
+
+  // Copia la curva actual de una banda a las tres. Se guarda con la clave
+  // "curves" existente (sin JSON nuevo). Sin crossfade: el click de cambio de
+  // curva esta aceptado, igual que el selector manual (v2.2.1).
+  menu->addChild(createSubmenuItem(
+      "Copy Curve", "", [=](ui::Menu *menu) {
+        static const char *bandNames[3] = {"Low", "Mid", "High"};
+        for (int src = 0; src < 3; src++) {
+          menu->addChild(createMenuItem(
+              string::f("%s to all", bandNames[src]), "", [=]() {
+                int id = saturator->curves[src].load();
+                for (int b = 0; b < 3; b++)
+                  saturator->setCurve(b, id);
+              }));
+        }
+      }));
+
+  // Info de solo lectura: sample rate, factor de oversampling, latencia en
+  // muestras base y version del plugin (plugin.json). 0 samples a 1x,
+  // OS_LATENCY (15) a 2x/4x/8x.
+  menu->addChild(new ui::MenuSeparator);
+  menu->addChild(createMenuLabel(string::f(
+      "%.1f kHz | %dx | %d samples | v%s",
+      saturator->sampleRate * 0.001f, saturator->oversampling,
+      saturator->oversampling > 1 ? coaldynamics::OS_LATENCY : 0,
+      pluginInstance->version.c_str())));
 }

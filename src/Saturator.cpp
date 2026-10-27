@@ -147,6 +147,14 @@ void Saturator::setCurve(int band, int id) {
   curves[band].store(id, std::memory_order_relaxed);
 }
 
+/** Llamado desde UI o JSON: valida -1 (Off) hasta 2 (High). Igual que
+setCurve, solo publica el atomico; el audio lo lee cada muestra base. */
+void Saturator::setSolo(int band) {
+  if (band < -1 || band > 2)
+    return;
+  solo.store(band, std::memory_order_relaxed);
+}
+
 void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
   sampleRate = e.sampleRate;
 
@@ -174,6 +182,8 @@ json_t *Saturator::dataToJson() {
   for (int i = 0; i < 3; i++)
     json_array_append_new(curvesJ, json_integer(curves[i].load()));
   json_object_set_new(rootJ, "curves", curvesJ);
+
+  json_object_set_new(rootJ, "solo", json_integer(solo.load()));
 
   return rootJ;
 }
@@ -203,6 +213,15 @@ void Saturator::dataFromJson(json_t *rootJ) {
       id = coaldynamics::CURVE_COUNT - 1;
     setCurve(i, id);
   }
+
+  // Sin "solo" -> Off (-1). No entero o fuera de -1..2 -> Off (-1).
+  json_t *soloJ = json_object_get(rootJ, "solo");
+  int soloValue = -1;
+  if (soloJ && json_is_integer(soloJ))
+    soloValue = (int) json_integer_value(soloJ);
+  if (soloValue < -1 || soloValue > 2)
+    soloValue = -1;
+  setSolo(soloValue);
 }
 
 /** Procesa un bloque de Stage::FACTOR submuestras: filtros + curva + pan/vol a
@@ -246,14 +265,20 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
 
     // Ley de pan: balance lineal con corte total (G_L=min(1,1-p),
     // G_R=min(1,1+p)); nunca gana >1
-    float lowOutL = wetLowL * p.volLow * std::min(1.f, 1.f - p.panLow);
-    float lowOutR = wetLowR * p.volLow * std::min(1.f, 1.f + p.panLow);
+    float lowOutL =
+        wetLowL * p.volLow * std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
+    float lowOutR =
+        wetLowR * p.volLow * std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
 
-    float midOutL = wetMidL * p.volMid * std::min(1.f, 1.f - p.panMid);
-    float midOutR = wetMidR * p.volMid * std::min(1.f, 1.f + p.panMid);
+    float midOutL =
+        wetMidL * p.volMid * std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
+    float midOutR =
+        wetMidR * p.volMid * std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
 
-    float upperOutL = wetUpperL * p.volHigh * std::min(1.f, 1.f - p.panHigh);
-    float upperOutR = wetUpperR * p.volHigh * std::min(1.f, 1.f + p.panHigh);
+    float upperOutL = wetUpperL * p.volHigh *
+                      std::min(1.f, 1.f - p.panHigh) * p.soloGainHigh;
+    float upperOutR = wetUpperR * p.volHigh *
+                      std::min(1.f, 1.f + p.panHigh) * p.soloGainHigh;
 
     wetL[i] = lowOutL + midOutL + upperOutL;
     wetR[i] = lowOutR + midOutR + upperOutR;
@@ -295,6 +320,29 @@ void Saturator::process(const ProcessArgs &args) {
   p.curveLow = curves[0].load(std::memory_order_relaxed);
   p.curveMid = curves[1].load(std::memory_order_relaxed);
   p.curveHigh = curves[2].load(std::memory_order_relaxed);
+
+  // Rampa de solo/dry ~5 ms: objetivo segun `solo`, un paso lineal por muestra
+  // base (240 pasos a 48 kHz: step = sampleTime * 200). Se calcula UNA vez por
+  // process(), a frecuencia base; el valor queda constante en las N
+  // submuestras del bloque de oversampling, asi que no hay artefacto al
+  // cambiar de stage (1x/2x/4x/8x).
+  const int soloBand = solo.load(std::memory_order_relaxed);
+  const float soloStep = args.sampleTime * 200.f;
+  for (int b = 0; b < 3; b++) {
+    float target = (soloBand < 0 || soloBand == b) ? 1.f : 0.f;
+    if (soloGain[b] < target)
+      soloGain[b] = std::min(target, soloGain[b] + soloStep);
+    else
+      soloGain[b] = std::max(target, soloGain[b] - soloStep);
+  }
+  float dryTarget = (soloBand < 0) ? 1.f : 0.f;
+  if (dryGain < dryTarget)
+    dryGain = std::min(dryTarget, dryGain + soloStep);
+  else
+    dryGain = std::max(dryTarget, dryGain - soloStep);
+  p.soloGainLow = soloGain[0];
+  p.soloGainMid = soloGain[1];
+  p.soloGainHigh = soloGain[2];
 
   p.panLow = clamp(params[LOW_PAN].getValue() +
                        (inputs[LOW_PAN_INPUT].getVoltage() / 10.f) *
@@ -363,8 +411,8 @@ void Saturator::process(const ProcessArgs &args) {
     dryIndex = 0;
 
   float mix = params[MIX_PARAM].getValue();
-  float outL = dryL * (1.f - mix) + wetL * mix;
-  float outR = dryR * (1.f - mix) + wetR * mix;
+  float outL = dryL * (1.f - mix) * dryGain + wetL * mix;
+  float outR = dryR * (1.f - mix) * dryGain + wetR * mix;
 
   float outVol = params[OUTPUT_VOL].getValue();
   outputs[OUT_L].setVoltage(outL * outVol);

@@ -6,7 +6,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin slug: `Coal_Dynamics`
 - Module: `Multiband Saturator` (`Multiband_Saturator`)
-- Version: `2.2.1`
+- Version: `2.3.0`
 - License: MIT (see `LICENSE.txt`)
 
 ## Features
@@ -15,6 +15,8 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 - Per band: Drive, Pan, Volume + CV for Pan/Volume
 - Oversampling 1x / 2x / 4x / 8x (default **1x / off**; opt-in)
 - Per-band saturation curve selector (Clean/Tanh/Cubic/Arctan/Hard/Foldback/Sine Fold/Tube/Diode), independent for Low/Mid/High
+- Per-band solo (respects MIX) and curve copy (Low/Mid/High → all) in the context menu
+- Read-only status info in the menu (sample rate, oversampling factor, latency, version)
 - Master Output volume + Mix (dry/wet)
 - Custom SVG knobs, ports and panel in `res/`
 
@@ -70,6 +72,24 @@ inputs down to ~±1 while Clean does not. Gain control (per band or OUTPUT_VOL) 
 suffers phase cancellation at 5 kHz. Tanh, bit-identical to v2.1.0, gives −25.9 dB with this method: it is
 not a regression.
 
+## Context menu (v2.3.0)
+
+Right-click the module:
+
+- **Solo** → `Off` / `Low` / `Mid` / `High`. A real per-band solo that **respects MIX**: it mutes
+  the dry path and the other two bands while the selected band keeps going through the current MIX
+  setting, so `MIX = 0` gives silence. The transition is ramped over ~5 ms (no click) and saved in
+  the patch as `"solo": -1|0|1|2` (`-1` = Off). Old patches without the key load in `Off`; an
+  invalid value also falls back to `Off`.
+- **Copy Curve** → `Low to all` / `Mid to all` / `High to all`. Copies the current curve of that
+  band to the three bands. It uses the existing `"curves"` key, so nothing new is saved. It can
+  click, exactly like picking a curve by hand.
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.3.0` — sample rate, oversampling
+  factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
+
+The saturation lights keep metering each band **before** the solo, so a muted band still shows its
+saturation level.
+
 ## Requirements
 
 - VCV Rack SDK 2.6.6 en `C:\Rack-SDK2.6.6` (ver `Makefile`: `RACK_DIR ?= /c/Rack-SDK2.6.6`)
@@ -103,7 +123,7 @@ Makefile           # Rack build (RACK_DIR, src/*.cpp, res/)
 src/
   plugin.cpp / plugin.hpp      # plugin instance + custom widgets
   Saturator.cpp / Saturator.hpp # DSP (filters, drive, pan/vol, mix)
-  SaturatorWidget.cpp          # UI + context menus (oversampling, per-band curves)
+  SaturatorWidget.cpp          # UI + context menus (oversampling, curves, solo, copy, info)
   Oversampling.hpp             # 1x/2x/4x/8x stages (header-only)
   Curves.hpp                   # 9 per-band saturation curves (header-only)
 res/               # panel + component SVGs
@@ -113,7 +133,7 @@ LICENSE.txt
 ## Install (from source)
 
 1. `make dist`
-2. Copy `dist/Coal_Dynamics-2.2.1-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
+2. Copy `dist/Coal_Dynamics-2.3.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
 3. Restart Rack.
 
 ## License
