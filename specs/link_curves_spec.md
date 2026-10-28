@@ -207,14 +207,19 @@ fichero: este spec no lo duplica para que no pueda desincronizarse.
 | 11 | `make clean && make` | 0 warnings / 0 errores con `-Wall -Wextra` (gate del repo). |
 | 12 | `make dist` con plugin.json 2.5.0 | `dist/Coal_Dynamics-2.5.0-win-x64.vcvplugin` (nombre con la versión del json). |
 
-**Estado de verificación (2026-10-27).** Probados en Rack 2.6.6 con el build de v2.5.0, sin errores:
+**Estado de verificación (2026-10-28).** Probados en Rack 2.6.6 con el build de v2.5.0, sin errores:
 **1** (activar el modo: check visible y curvas intactas), **2** (cambio enlazado desde Low: las tres
-bandas cambian y el lema es "Undo change curves"), **3 parcial** (un solo Ctrl+Z restaura las tres; no
-se probó Ctrl+Shift+Z), **6** (desactivar: cada banda vuelve a ser independiente) y **8 parcial**
-(guardar con el modo ON y recargar: el check reaparece; un patch v2.4.0 carga con el modo off). El
-gate de build (**11**) lo cubre `make clean && make` → 0 warnings / 0 errores, y el nombre del paquete
-(**12**) `make dist`. **Pendientes de prueba manual: 3 (Ctrl+Shift+Z), 4, 5, 7, 9, 10 y los valores
-inválidos de 8.**
+bandas cambian y el lema es "Undo change curves"), **3** (Ctrl+Z restaura las tres en un solo paso y
+Ctrl+Shift+Z las vuelve a poner en Hard), **4** (cambio desde Mid y desde High: se aplica a las tres
+bandas), **5** (relegir X con las tres ya en X: sin entrada nueva; el siguiente Ctrl+Z deshace el gesto
+anterior), **6** (desactivar: cada banda vuelve a ser independiente), **7** (undo/redo del toggle: lema
+"Undo toggle link curves", el modo vuelve a off con las curvas intactas y Ctrl+Shift+Z lo reactiva),
+**9** (roundtrip sin tocar nada: curvas, oversampling, solo y link idénticos, sin entrada de historial)
+y **10** (borrar el módulo con cambios enlazados y Ctrl+Z: sin crash). El caso **8** sigue parcial:
+guardar con el modo ON y recargar mantiene el check, y un patch v2.4.0 carga con el modo off (curvas
+intactas). El gate de build (**11**) lo cubre `make clean && make` → 0 warnings / 0 errores, y el
+nombre del paquete (**12**) `make dist`. **Pendiente de prueba manual: solo los valores inválidos del
+caso 8** (`"linkCurves": "x"` y `"linkCurves": 1` ⇒ link off).
 
 ## Riesgos
 
