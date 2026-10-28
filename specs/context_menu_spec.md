@@ -99,16 +99,22 @@ Formato exacto: `%.1f kHz | %dx | %d samples | v%s`, p.ej. `48.0 kHz | 1x | 0 sa
 | 7 | JSON sin clave | Carga a Off (-1) | Patch v2.2.1 existente |
 | 8 | JSON inválido | `7`, `-3`, `"x"` ⇒ Off | Editar el .vcv a mano |
 | 9 | Copy Low→all (y Mid/High) | Los 3 submenús de curva muestran la misma curva; `"curves"` JSON = [id,id,id] | Menú + patch JSON |
-| 10 | Info | Texto exacto `48.0 kHz | 1x | 0 samples | v2.3.0` a 48k/1x (y `15 samples` a 4x) | Menú en Rack |
+| 10 | Info | Texto exacto `48.0 kHz | 1x | 0 samples | v2.5.0` a 48k/1x (y `15 samples` a 4x) | Menú en Rack |
 | 11 | Enums intactos | `git diff` sin cambios en ParamIds/InputIds/OutputIds/LightIds | `git diff src/Saturator.hpp` |
 | 12 | Sin allocator/lock en process() | No hay `std::string`, `new`, ni mutex en `process()`/`processBands()` (la math del ramp es branch/min/max) | Revisión de código + profiling opcional |
-| 13 | Medidores | Las 6 luces de saturación siguen respondiendo a su banda **aunque Solo la silencie** | Rack: Solo en una banda y ver la luz de otra saturar |
+**Caso 13 descartado (2026-10-28).** El módulo configura 6 luces (`Saturator.hpp:69`) y las alimenta en
+`process()`, pero no hay ningún `LightWidget` en el panel que las dibuje: no son visibles, así que el
+caso no es verificable. Se anota como mejora futura: **LEDs de saturación visibles**.
 
-**Estado de verificación (2026-10-27).** Verificados: **1** (build 0 errores / 0 warnings), **11** y
-**12** (diff de enums y revisión de `process()`). En Rack, con osciloscopio, la misma señal a 1x y a 4x
-no muestra diferencia de nivel ni de forma de onda: eso cierra la alineación dry/wet junto con la
-medición por impulso de `oversampling_spec.md` §5 (15 muestras exactas a 2x/4x/8x, 0 a 1x).
-**Pendientes de prueba audible en Rack: 2–10 y 13.**
+**Estado de verificación (2026-10-28).** Verificados: **1** (build 0 errores / 0 warnings), **11** y
+**12** (diff de enums y revisión de `process()`). Probados en Rack 2.6.6 con el build de v2.5.0, sin
+errores: **2** (Solo Low, MIX=1: solo pasa Low; Mid/High y dry mudos), **3** (MIX=0.5: nivel ≈ mitad y
+sin componente dry), **4** (MIX=0: silencio tras la rampa), **6** (roundtrip de `"solo"`), **7** (patch
+v2.2.1 sin la clave → Off), **9** (Copy Low/Mid/High to all: los tres submenús iguales y `"curves"` =
+`[id,id,id]`) y **10** (texto de Info correcto en v2.5.0). La alineación dry/wet a 1x/4x sigue cerrada
+por osciloscopio y por la medición por impulso de `oversampling_spec.md` §5 (15 muestras a 2x/4x/8x, 0 a
+1x). **Pendientes de prueba manual: 5** (rampa sin click) y **8** (valores inválidos de `"solo"`: 7, -3
+y `"x"` ⇒ Off).
 
 ## 9. Riesgos
 
