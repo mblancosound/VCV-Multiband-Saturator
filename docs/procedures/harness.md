@@ -5,23 +5,27 @@ esta máquina (Windows + MSYS2); no se aceptan comandos «probables».
 
 - Repo: `C:\Coal_Dynamics\Multiband_Saturator` (rama de integración: `main`)
 - SDK: `C:/Rack-SDK2.6.6` (`Makefile`: `RACK_DIR ?= /c/Rack-SDK2.6.6`)
-- Config de agentes: `C:\Users\manub\.config\opencode\agent\`
+- Config de agentes: `C:\Users\manub\.config\opencode\agents\`
 
 ## 1. Roster y modelos
 
 | Rol | Agente | Modelo | Permisos |
 |---|---|---|---|
-| Plan / reparto | `orchestrator` (primary) | `opencode/deepseek-v4.1-flash-free` | `edit: deny`, `task: allow` |
+| Plan / reparto | `orchestrator` (primary) | `opencode/deepseek-v4.1-flash-free` | `edit: deny`, `subagent: allow` |
 | Specs / plan de ficheros | `architect` | `opencode/flint-40b-free` (`variant: xhigh`) | escribe solo en `specs/` |
-| Mapeo y verificación rápida | `auditor` | `opencode/nemotron-3.5-lightning-free` | solo lectura |
-| Implementación | `local-coder` | `ollama/qwen3:8b` (`num_ctx 16384`) | `edit: allow`, `bash: ask` |
-| Desborde (2 escritores más) | `general` | built-in | `edit: allow` |
+| Mapeo y verificación rápida | `auditor` | `ollama/qwen3:8b` (local) | solo lectura |
+| Implementación | `local-coder` | `ollama/qwen3:8b` (`num_ctx 16384`) | `edit: allow`, `shell: ask` |
+| Desborde (2 escritores más) | `overflow-writer` | `ollama/qwen3:8b` (local) | `edit: allow` |
 | Juez J1 (correctitud) | `judge-correctness` | `opencode/nemotron-3.5-super-vl-free` | solo lectura, `webfetch: deny` |
-| Juez J2 (simplicidad) | `judge-simplicity` | `opencode/glm-5.3-flash-free` | solo lectura, `webfetch: deny` |
+| Juez J2 (simplicidad) | `judge-simplicity` | `ollama/qwen3:8b` (local) | solo lectura, `webfetch: deny` |
 
 Los jueces tienen `hidden: true`: no aparecen en la lista de subagentes del orquestador, pero **sí son
 invocables por id**. Los tres modelos de juicio/arquitectura son distintos entre sí a propósito
 (independencia de los veredictos).
+
+> **Actualización (2026-10-28):** todo el tier local usa `ollama/qwen3:8b` (escritura, desborde,
+> auditoría y J2). `qwen2.5-coder:7b`, `qwen2.5:3b` y `phi4-mini` no invocan herramientas de forma
+> fiable en OpenCode 2.2.0.
 
 ## 2. Gate (criterio único de «verde»)
 
@@ -72,7 +76,7 @@ se re-mide, el veredicto es RECHAZADO por falta de evidencia.
 
 1. **Un escritor por worktree.** Nunca dos escritores en el mismo árbol ni dos worktrees sobre el mismo
    fichero.
-2. **Máximo 3 escritores** en vuelo: `local-coder` (prioridad) + hasta dos `general` de desborde.
+2. **Máximo 3 escritores** en vuelo: `local-coder` (prioridad) + hasta dos `overflow-writer`.
 3. **Ficheros disjuntos** por unidad de trabajo. Si dos unidades comparten fichero, se serializan.
 4. `local-coder` recibe **una sola operación de fichero por directiva** (crear *o* editar *o* leer) y
    se continúa con la misma sesión. Mezclar escritura y edición en el mismo turno falla por vista
@@ -96,7 +100,7 @@ caliente** (los tocan muchos cambios): un solo dueño por ronda. `specs/` es del
 2. **`auditor`** → tabla `fichero → propósito → punto de cambio` con `file:line`. Verifica que las
    rutas y firmas citadas por el arquitecto existen.
 3. **Reparto** → worktrees + directiva por escritor (fichero, línea, contrato, gate parcial).
-4. **Implementación** → `local-coder` (y `general` de desborde), diff mínimo, sin tocar ficheros fuera
+4. **Implementación** → `local-coder` (y `overflow-writer`), diff mínimo, sin tocar ficheros fuera
    de la lista.
 5. **Gate** → §2 sobre el artefacto integrado en la rama de integración.
 6. **Juicio** → `judge-correctness` y `judge-simplicity` en **sesiones separadas**, sin ver los

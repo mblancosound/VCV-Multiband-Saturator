@@ -1,0 +1,26 @@
+# Alias in-band no armonico (dB rel. fundamental) | seno 5 kHz, Vpk=5, drive=100%, MIX=1
+# congelado desde v2.5.0 por `harness --freeze`
+curve=1 n=1 alias=-0.984926
+curve=1 n=4 alias=-13.171000
+curve=1 n=8 alias=-12.575382
+curve=2 n=1 alias=-6.394328
+curve=2 n=4 alias=-19.189658
+curve=2 n=8 alias=-19.247319
+curve=3 n=1 alias=-1.764761
+curve=3 n=4 alias=-13.893829
+curve=3 n=8 alias=-13.326560
+curve=4 n=1 alias=-0.825930
+curve=4 n=4 alias=-12.940028
+curve=4 n=8 alias=-12.411514
+curve=5 n=1 alias=5.317716
+curve=5 n=4 alias=-8.181920
+curve=5 n=8 alias=-8.455212
+curve=6 n=1 alias=1.235831
+curve=6 n=4 alias=-6.394176
+curve=6 n=8 alias=-19.310827
+curve=7 n=1 alias=0.291050
+curve=7 n=4 alias=-12.057088
+curve=7 n=8 alias=-11.169897
+curve=8 n=1 alias=-0.720075
+curve=8 n=4 alias=-12.839678
+curve=8 n=8 alias=-12.236388

@@ -1,0 +1,15 @@
+# Expectativas del arnes v2.6.0 (specs/v2.6_test_harness_spec.md secciones 8.1 y 9)
+# Formato: <ID> | status=<PASS|XFAIL>
+# PASS  = debe cumplir el umbral; si falla -> FAIL (gate rojo)
+# XFAIL = fallo esperado y justificado; si pasa -> FAIL (hay que promover la expectativa)
+#
+# T-RECON: fallo esperado con el crossover legacy (ripple +1.00 dB @1 kHz y
+# -2.06 dB @2.5 kHz). Regla de promocion: al implementar LR4
+# (specs/v2.6_quality_spec.md, F1) esta entrada pasa a PASS en el mismo commit.
+T-RECON | status=XFAIL
+T-LAT | status=PASS
+T-TRIM | status=PASS
+T-ALIAS | status=PASS
+T-DC | status=PASS
+T-NAN | status=PASS
+T-MIX | status=PASS

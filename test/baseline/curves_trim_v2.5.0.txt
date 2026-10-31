@@ -1,0 +1,29 @@
+# Curvas TRIM: RMS de salida (dBFS rel. 1 V) | seno 1 kHz, Vpk=5 V, MIX=1, vol=1
+# congelado desde v2.5.0 por `harness --freeze`
+curve=0 drive=0 rms=-1.139612
+curve=0 drive=1 rms=-1.139612
+curve=0 drive=2 rms=-1.139612
+curve=1 drive=0 rms=-4.852299
+curve=1 drive=1 rms=-4.001479
+curve=1 drive=2 rms=-2.049315
+curve=2 drive=0 rms=3.341379
+curve=2 drive=1 rms=4.710744
+curve=2 drive=2 rms=-2.331530
+curve=3 drive=0 rms=-6.239892
+curve=3 drive=1 rms=-6.863151
+curve=3 drive=2 rms=-4.106352
+curve=4 drive=0 rms=-4.565321
+curve=4 drive=1 rms=-2.528064
+curve=4 drive=2 rms=-1.544512
+curve=5 drive=0 rms=0.506124
+curve=5 drive=1 rms=5.281643
+curve=5 drive=2 rms=3.831208
+curve=6 drive=0 rms=3.157863
+curve=6 drive=1 rms=7.934136
+curve=6 drive=2 rms=-1.302120
+curve=7 drive=0 rms=-6.641927
+curve=7 drive=1 rms=-2.475953
+curve=7 drive=2 rms=-1.351253
+curve=8 drive=0 rms=-6.306439
+curve=8 drive=1 rms=-5.238385
+curve=8 drive=2 rms=-2.818302
