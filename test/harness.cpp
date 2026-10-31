@@ -198,6 +198,9 @@ Outcome caseRecon() {
   double worst = 0.0;
   for (int k = 0; k < 7; ++k) {
     cdt::OfflineChain ch;
+    // T-RECON valida la reconstruccion del crossover LR4 (v2.6.0): con
+    // mid = x - low - high la suma de bandas es x por construccion.
+    ch.p.lr4 = 1;
     ch.configure(FS, 1);
     configureCurves(ch, coaldynamics::CLEAN, 1.f);
     ch.p.volLow = 0.8f;

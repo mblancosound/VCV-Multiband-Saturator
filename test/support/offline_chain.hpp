@@ -21,6 +21,8 @@ struct ChainParams {
   int soloBand;
   float mix;
   float outVol;
+  /** 0 = crossover LEGACY (v2.5.0), 1 = LR4 (v2.6.0). */
+  int lr4;
 
   ChainParams()
       : driveLow(1.f), driveMid(1.f), driveHigh(1.f),
@@ -28,7 +30,7 @@ struct ChainParams {
         curveHigh(coaldynamics::TANH),
         panLow(0.f), panMid(0.f), panHigh(0.f),
         volLow(1.f), volMid(1.f), volHigh(1.f),
-        soloBand(-1), mix(1.f), outVol(1.f) {}
+        soloBand(-1), mix(1.f), outVol(1.f), lr4(0) {}
 };
 
 // Replica offline de Saturator::process(). Copia la topologia y los
@@ -46,6 +48,8 @@ struct OfflineChain {
   LocalStage<8> stage8;
 
   rack::dsp::BiquadFilter lowL, lowR, midL, midR, highL, highR;
+  // Segunda etapa de la cascada LR4 (v2.6.0); en LEGACY no se usan.
+  rack::dsp::BiquadFilter lowL2, lowR2, highL2, highR2;
 
   float sampleRate;
   int factor;
@@ -75,6 +79,17 @@ struct OfflineChain {
     midR.setParameters(rack::dsp::BiquadFilter::BANDPASS, 1000.f / fso, 1.0f, 1.f);
     highL.setParameters(rack::dsp::BiquadFilter::HIGHPASS, 4000.f / fso, 0.707f, 1.f);
     highR.setParameters(rack::dsp::BiquadFilter::HIGHPASS, 4000.f / fso, 0.707f, 1.f);
+
+    // LR4 (v2.6.0): segunda etapa de la cascada a fc*sqrt(2) y Q = 0.707,
+    // identico a src/Saturator.cpp updateFilterFrequencies().
+    lowL2.setParameters(rack::dsp::BiquadFilter::LOWPASS, 353.55339f / fso,
+                        0.707f, 1.f);
+    lowR2.setParameters(rack::dsp::BiquadFilter::LOWPASS, 353.55339f / fso,
+                        0.707f, 1.f);
+    highL2.setParameters(rack::dsp::BiquadFilter::HIGHPASS, 5656.85425f / fso,
+                         0.707f, 1.f);
+    highR2.setParameters(rack::dsp::BiquadFilter::HIGHPASS, 5656.85425f / fso,
+                         0.707f, 1.f);
 
     stage1.reset();
     stage2.reset();
@@ -115,12 +130,24 @@ struct OfflineChain {
       const float xL = upL[i];
       const float xR = upR[i];
 
-      const float lowLf = lowL.process(xL);
-      const float lowRf = lowR.process(xR);
-      const float midLf = midL.process(xL);
-      const float midRf = midR.process(xR);
-      const float highLf = highL.process(xL);
-      const float highRf = highR.process(xR);
+      float lowLf, lowRf, midLf, midRf, highLf, highRf;
+      if (p.lr4) {
+        // Low = LP4 y High = HP4 en cascada; Mid = x - low - high, de modo
+        // que low + mid + high reconstruye la entrada.
+        lowLf = lowL2.process(lowL.process(xL));
+        lowRf = lowR2.process(lowR.process(xR));
+        highLf = highL2.process(highL.process(xL));
+        highRf = highR2.process(highR.process(xR));
+        midLf = xL - lowLf - highLf;
+        midRf = xR - lowRf - highRf;
+      } else {
+        lowLf = lowL.process(xL);
+        lowRf = lowR.process(xR);
+        midLf = midL.process(xL);
+        midRf = midR.process(xR);
+        highLf = highL.process(xL);
+        highRf = highR.process(xR);
+      }
 
       const float wetLowL = coaldynamics::applyCurve(
           coaldynamics::curveDrive(lowLf, p.driveLow, p.curveLow), p.curveLow);

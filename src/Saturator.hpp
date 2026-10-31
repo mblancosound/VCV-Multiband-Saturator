@@ -84,6 +84,20 @@ struct Saturator : Module {
   dsp::BiquadFilter midFilterL, midFilterR;
   dsp::BiquadFilter highFilterL, highFilterR;
 
+  /** Segunda etapa de la cascada LR4: Low = LP4 (lowFilter -> lowFilter2),
+      High = HP4 (highFilter -> highFilter2). En modo LEGACY no se usan. */
+  dsp::BiquadFilter lowFilter2L, lowFilter2R;
+  dsp::BiquadFilter highFilter2L, highFilter2R;
+
+  /** Modo de crossover: 0 = LEGACY (LP 250 / BP 1k / HP 4k en paralelo),
+      1 = LR4 (Low = LP4, High = HP4, Mid = x - low - high). Solo lo escribe
+      applyCrossover() en el hilo de audio. Por defecto 0: un patch v2.5.0
+      carga y suena bit-identico. */
+  int crossover = 0;
+  /** Peticion pendiente de cambio de modo (-1 = ninguna). La escriben la UI y
+      el JSON; la consume el hilo de audio con exchange(). */
+  std::atomic<int> pendingCrossover{-1};
+
   coaldynamics::OversampledStage<2, coaldynamics::OS_QUALITY> stage2;
   coaldynamics::OversampledStage<4, coaldynamics::OS_QUALITY> stage4;
   coaldynamics::OversampledStage<8, coaldynamics::OS_QUALITY> stage8;
@@ -141,15 +155,24 @@ struct Saturator : Module {
 
   /** Called from UI/JSON threads: only records the request. */
   void setOversampling(int factor);
+  /** Llamado desde UI o JSON: valida 0 (LEGACY) / 1 (LR4) y deja la peticion. */
+  void setCrossover(int mode);
   /** Llamado desde UI/JSON: valida y publica la curva de una banda. */
   void setCurve(int band, int id);
   /** Llamado desde UI o JSON: valida -1 (Off) hasta 2 (High) y publica el solo. */
   void setSolo(int band);
   /** Called from the audio thread: resets state and rebuilds coefficients. */
   void applyOversampling(int factor);
+  /** Llamado desde el hilo de audio: resetea filtros y rehace coeficientes. */
+  void applyCrossover(int mode);
   void updateFilterFrequencies();
 
+  /** Elige topologia una vez por bloque (no por muestra). */
   template <class Stage>
+  void processBlock(Stage &stage, const OSParams &p, float inL, float inR,
+                    float &outL, float &outR);
+
+  template <class Stage, bool LR4>
   void processBands(Stage &stage, const OSParams &p, float inL, float inR,
                     float &outL, float &outR);
 };

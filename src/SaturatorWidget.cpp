@@ -44,6 +44,16 @@ void requestOversampling(Saturator *saturator, int factor) {
   saturator->setOversampling(factor);
 }
 
+/** Solicita un modo de crossover desde una undo/redo. Mismo patron que
+    requestOversampling: solo deja la peticion pendiente. */
+void requestCrossover(Saturator *saturator, int mode) {
+  if (mode == saturator->crossover) {
+    saturator->pendingCrossover.store(-1, std::memory_order_relaxed);
+    return;
+  }
+  saturator->setCrossover(mode);
+}
+
 // --- Acciones de historial (una clase por operacion del menu) ---------------
 
 /** Cambio de curva de una banda (Low/Mid/High). */
@@ -164,6 +174,28 @@ struct OversamplingAction : history::ModuleAction {
   }
 };
 
+/** Cambio de topologia de crossover (0 = LEGACY, 1 = LR4). */
+struct CrossoverAction : history::ModuleAction {
+  int oldMode = 0;
+  int newMode = 0;
+
+  CrossoverAction() { name = "change crossover"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    requestCrossover(s, oldMode);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    requestCrossover(s, newMode);
+  }
+};
+
 // --- Helpers de los menus: aplicar + registrar (o no-op si no cambia) -------
 
 /** Escribe newCurve en las tres bandas y registra UNA sola entrada de
@@ -263,6 +295,22 @@ void pushOversamplingHistory(Saturator *saturator, int factor) {
   action->moduleId = saturator->id;
   action->oldFactor = oldFactor;
   action->newFactor = factor;
+  APP->history->push(action);
+}
+
+void pushCrossoverHistory(Saturator *saturator, int mode) {
+  // Valor efectivo: la peticion pendiente (-1 = ninguna) cuenta como actual
+  // hasta que el hilo de audio la aplica al principio del siguiente bloque.
+  int pending = saturator->pendingCrossover.load(std::memory_order_relaxed);
+  int oldMode = (pending != -1) ? pending : saturator->crossover;
+  if (oldMode == mode)
+    return;
+  requestCrossover(saturator, mode);
+
+  CrossoverAction *action = new CrossoverAction;
+  action->moduleId = saturator->id;
+  action->oldMode = oldMode;
+  action->newMode = mode;
   APP->history->push(action);
 }
 
@@ -381,6 +429,13 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
         static const int factors[4] = {1, 2, 4, 8};
         pushOversamplingHistory(saturator, factors[index]);
       }));
+
+  // Crossover (v2.6.0): LEGACY = comportamiento v2.5.0; LR4 = reconstruccion
+  // perfecta con Mid derivada como x - low - high. Undoable.
+  menu->addChild(createIndexSubmenuItem(
+      "Crossover", {"Legacy", "LR4"},
+      [=]() { return (size_t) (saturator->crossover == 1 ? 1 : 0); },
+      [=](size_t index) { pushCrossoverHistory(saturator, (int) index); }));
 
   menu->addChild(new ui::MenuSeparator);
 

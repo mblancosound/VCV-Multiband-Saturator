@@ -75,9 +75,34 @@ Saturator::Saturator() {
 }
 
 /** Disena los crossovers a sampleRate * oversampling. Unico punto que toca
-los coeficientes de los biquads. */
+los coeficientes de los biquads; la topologia depende de `crossover`. */
 void Saturator::updateFilterFrequencies() {
-  float fs = sampleRate * (float) oversampling;
+  const float fs = sampleRate * (float) oversampling;
+
+  if (crossover == 1) {
+    // LR4 (specs/v2.6_quality_spec.md 3.1): Low = LP4 y High = HP4 como
+    // cascada de dos Butterworth de 2o orden (Q = 0.707), a fc y fc*sqrt(2).
+    // La banda Mid no usa filtro: se deriva como x - low - high en
+    // processBands(), de modo que low + mid + high reconstruye la entrada.
+    lowFilterL.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
+                             1.0f);
+    lowFilterR.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
+                             1.0f);
+    lowFilter2L.setParameters(dsp::BiquadFilter::LOWPASS, 353.55339f / fs,
+                              0.707f, 1.0f);
+    lowFilter2R.setParameters(dsp::BiquadFilter::LOWPASS, 353.55339f / fs,
+                              0.707f, 1.0f);
+
+    highFilterL.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
+                              1.0f);
+    highFilterR.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
+                              1.0f);
+    highFilter2L.setParameters(dsp::BiquadFilter::HIGHPASS, 5656.85425f / fs,
+                               0.707f, 1.0f);
+    highFilter2R.setParameters(dsp::BiquadFilter::HIGHPASS, 5656.85425f / fs,
+                               0.707f, 1.0f);
+    return;
+  }
 
   // Lowpass
   lowFilterL.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
@@ -141,6 +166,39 @@ void Saturator::applyOversampling(int factor) {
   updateFilterFrequencies();
 }
 
+/** Llamado desde UI o JSON: valida 0 (LEGACY) / 1 (LR4). Igual que
+setOversampling, solo publica la peticion; el audio la aplica al principio del
+siguiente bloque. */
+void Saturator::setCrossover(int mode) {
+  if (mode != 0 && mode != 1)
+    return;
+  if (mode == crossover)
+    return;
+  pendingCrossover.store(mode, std::memory_order_relaxed);
+}
+
+/** Llamado desde el hilo de audio: resetea los estados de filtro y rehace los
+coeficientes para la topologia pedida. El cambio de topologia produce un click
+corto, aceptado en specs/v2.6_quality_spec.md 3.4. */
+void Saturator::applyCrossover(int mode) {
+  if (mode != 0 && mode != 1)
+    return;
+  crossover = mode;
+
+  lowFilterL.reset();
+  lowFilterR.reset();
+  lowFilter2L.reset();
+  lowFilter2R.reset();
+  midFilterL.reset();
+  midFilterR.reset();
+  highFilterL.reset();
+  highFilterR.reset();
+  highFilter2L.reset();
+  highFilter2R.reset();
+
+  updateFilterFrequencies();
+}
+
 /** Llamado desde UI o JSON: valida banda (0..2) e id (0..CURVE_COUNT-1).
 Un valor invalido se ignora. Solo publica el atomico; el audio lo lee en el
 siguiente bloque. */
@@ -183,6 +241,10 @@ json_t *Saturator::dataToJson() {
   json_t *rootJ = json_object();
   json_object_set_new(rootJ, "oversampling", json_integer(oversampling));
 
+  // Modo de crossover (v2.6.0). Siempre se escribe; la lectura es estricta.
+  json_object_set_new(rootJ, "crossover",
+                      json_string(crossover == 1 ? "lr4" : "legacy"));
+
   json_t *curvesJ = json_array();
   for (int i = 0; i < 3; i++)
     json_array_append_new(curvesJ, json_integer(curves[i].load()));
@@ -206,6 +268,14 @@ void Saturator::dataFromJson(json_t *rootJ) {
     setOversampling(factor);
   }
 
+  // "crossover": solo "lr4" activa LR4; ausente o cualquier otro valor deja
+  // LEGACY, que es el comportamiento exacto de v2.5.0.
+  json_t *crossJ = json_object_get(rootJ, "crossover");
+  int crossMode = 0;
+  if (crossJ && json_is_string(crossJ) &&
+      std::string(json_string_value(crossJ)) == "lr4")
+    crossMode = 1;
+  setCrossover(crossMode);
   // Sin "curves" -> TANH en las tres bandas. Valor no entero o array corto
   // -> TANH en esa banda. Numero fuera de rango -> clamp 0..CURVE_COUNT-1.
   json_t *curvesJ = json_object_get(rootJ, "curves");
@@ -242,9 +312,20 @@ void Saturator::dataFromJson(json_t *rootJ) {
       (linkJ && json_is_boolean(linkJ)) ? json_boolean_value(linkJ) : false;
 }
 
+/** Elige la topologia una sola vez por bloque: con LR4 el compilador genera
+dos versiones de processBands y no queda ninguna rama por muestra. */
+template <class Stage>
+void Saturator::processBlock(Stage &stage, const OSParams &p, float inL,
+                             float inR, float &outL, float &outR) {
+  if (crossover == 1)
+    processBands<Stage, true>(stage, p, inL, inR, outL, outR);
+  else
+    processBands<Stage, false>(stage, p, inL, inR, outL, outR);
+}
+
 /** Procesa un bloque de Stage::FACTOR submuestras: filtros + curva + pan/vol a
 frecuencia sobremuestreada, y decimacion de la suma de bandas. */
-template <class Stage>
+template <class Stage, bool LR4>
 void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
                              float inR, float &outL, float &outR) {
   const int N = Stage::FACTOR;
@@ -259,12 +340,25 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
     float xL = highL[i];
     float xR = highR[i];
 
-    float lowL = lowFilterL.process(xL);
-    float lowR = lowFilterR.process(xR);
-    float midL = midFilterL.process(xL);
-    float midR = midFilterR.process(xR);
-    float upperL = highFilterL.process(xL);
-    float upperR = highFilterR.process(xR);
+    float lowL, lowR, midL, midR, upperL, upperR;
+    if (LR4) {
+      // Low = LP4 y High = HP4 en cascada; Mid se deriva para que
+      // low + mid + high reconstruya x (specs/v2.6_quality_spec.md 3.1).
+      // LR4 es constante de plantilla: no hay rama por muestra.
+      lowL = lowFilter2L.process(lowFilterL.process(xL));
+      lowR = lowFilter2R.process(lowFilterR.process(xR));
+      upperL = highFilter2L.process(highFilterL.process(xL));
+      upperR = highFilter2R.process(highFilterR.process(xR));
+      midL = xL - lowL - upperL;
+      midR = xR - lowR - upperR;
+    } else {
+      lowL = lowFilterL.process(xL);
+      lowR = lowFilterR.process(xR);
+      midL = midFilterL.process(xL);
+      midR = midFilterR.process(xR);
+      upperL = highFilterL.process(xL);
+      upperR = highFilterR.process(xR);
+    }
 
     float wetLowL = coaldynamics::applyCurve(
         coaldynamics::curveDrive(lowL, p.driveLow, p.curveLow), p.curveLow);
@@ -329,6 +423,11 @@ void Saturator::process(const ProcessArgs &args) {
   if (requestedFactor != 0)
     applyOversampling(requestedFactor);
 
+  // Mismo patron para el crossover: la peticion se consume una vez por bloque.
+  const int requestedCrossover =
+      pendingCrossover.exchange(-1, std::memory_order_relaxed);
+  if (requestedCrossover != -1)
+    applyCrossover(requestedCrossover);
   float inL = inputs[IN_L].getVoltage();
   float inR = inputs[IN_R].isConnected() ? inputs[IN_R].getVoltage() : inL;
 
@@ -393,16 +492,16 @@ void Saturator::process(const ProcessArgs &args) {
   float wetR = 0.f;
   switch (oversampling) {
     case 1:
-      processBands(stage1, p, inL, inR, wetL, wetR);
+      processBlock(stage1, p, inL, inR, wetL, wetR);
       break;
     case 2:
-      processBands(stage2, p, inL, inR, wetL, wetR);
+      processBlock(stage2, p, inL, inR, wetL, wetR);
       break;
     case 8:
-      processBands(stage8, p, inL, inR, wetL, wetR);
+      processBlock(stage8, p, inL, inR, wetL, wetR);
       break;
     default:
-      processBands(stage4, p, inL, inR, wetL, wetR);
+      processBlock(stage4, p, inL, inR, wetL, wetR);
       break;
   }
 

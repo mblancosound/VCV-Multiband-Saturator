@@ -17,7 +17,7 @@ curve=4 drive=1 rms=-2.528064
 curve=4 drive=2 rms=-1.544512
 curve=5 drive=0 rms=0.506124
 curve=5 drive=1 rms=5.281643
-curve=5 drive=2 rms=3.831208
+curve=5 drive=2 rms=3.831207
 curve=6 drive=0 rms=3.157863
 curve=6 drive=1 rms=7.934136
 curve=6 drive=2 rms=-1.302120
