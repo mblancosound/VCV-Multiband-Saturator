@@ -52,6 +52,10 @@ struct Saturator : Module {
     MID_VOL_CV,
     HIGH_PAN_CV,
     HIGH_VOL_CV,
+    /** CV de Drive por banda (G1). Atenuadores bipolares; ids 17..19. */
+    LOW_DRIVE_CV,
+    MID_DRIVE_CV,
+    HIGH_DRIVE_CV,
     NUM_PARAMS
   };
   enum InputIds {
@@ -63,6 +67,10 @@ struct Saturator : Module {
     MID_VOL_INPUT,
     HIGH_PAN_INPUT,
     HIGH_VOL_INPUT,
+    /** Entradas CV de Drive por banda (G1). Ids 8..10. */
+    LOW_DRIVE_INPUT,
+    MID_DRIVE_INPUT,
+    HIGH_DRIVE_INPUT,
     NUM_INPUTS
   };
   enum OutputIds { OUT_L, OUT_R, NUM_OUTPUTS };

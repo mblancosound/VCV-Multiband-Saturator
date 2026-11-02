@@ -29,6 +29,9 @@ Saturator::Saturator() {
   configParam(MID_VOL_CV, -1.f, 1.f, 0.f, "Mid Vol CV", "%", 0.f, 100.f);
   configParam(HIGH_PAN_CV, -1.f, 1.f, 0.f, "High Pan CV", "%", 0.f, 100.f);
   configParam(HIGH_VOL_CV, -1.f, 1.f, 0.f, "High Vol CV", "%", 0.f, 100.f);
+  configParam(LOW_DRIVE_CV, -1.f, 1.f, 0.f, "Low Drive CV", "%", 0.f, 100.f);
+  configParam(MID_DRIVE_CV, -1.f, 1.f, 0.f, "Mid Drive CV", "%", 0.f, 100.f);
+  configParam(HIGH_DRIVE_CV, -1.f, 1.f, 0.f, "High Drive CV", "%", 0.f, 100.f);
 
   getParamQuantity(LOW_DRIVE)->randomizeEnabled = false;
   getParamQuantity(LOW_PAN)->randomizeEnabled = false;
@@ -47,6 +50,9 @@ Saturator::Saturator() {
   getParamQuantity(MID_VOL_CV)->randomizeEnabled = false;
   getParamQuantity(HIGH_PAN_CV)->randomizeEnabled = false;
   getParamQuantity(HIGH_VOL_CV)->randomizeEnabled = false;
+  getParamQuantity(LOW_DRIVE_CV)->randomizeEnabled = false;
+  getParamQuantity(MID_DRIVE_CV)->randomizeEnabled = false;
+  getParamQuantity(HIGH_DRIVE_CV)->randomizeEnabled = false;
 
   configInput(IN_L, "Left input");
   configInput(IN_R, "Right input");
@@ -56,6 +62,9 @@ Saturator::Saturator() {
   configInput(MID_VOL_INPUT, "Mid Vol CV");
   configInput(HIGH_PAN_INPUT, "High Pan CV");
   configInput(HIGH_VOL_INPUT, "High Vol CV");
+  configInput(LOW_DRIVE_INPUT, "Low Drive CV");
+  configInput(MID_DRIVE_INPUT, "Mid Drive CV");
+  configInput(HIGH_DRIVE_INPUT, "High Drive CV");
 
   configOutput(OUT_L, "Left output");
   configOutput(OUT_R, "Right output");
@@ -505,9 +514,15 @@ void Saturator::process(const ProcessArgs &args) {
   float inR = inputs[IN_R].isConnected() ? inputs[IN_R].getVoltage() : inL;
 
   OSParams p;
-  p.driveLow = 1.f + params[LOW_DRIVE].getValue() * 10.f;
-  p.driveMid = 1.f + params[MID_DRIVE].getValue() * 10.f;
-  p.driveHigh = 1.f + params[HIGH_DRIVE].getValue() * 10.f;
+  p.driveLow = coaldynamics::driveFromCv(params[LOW_DRIVE].getValue(),
+                                         inputs[LOW_DRIVE_INPUT].getVoltage(),
+                                         params[LOW_DRIVE_CV].getValue());
+  p.driveMid = coaldynamics::driveFromCv(params[MID_DRIVE].getValue(),
+                                         inputs[MID_DRIVE_INPUT].getVoltage(),
+                                         params[MID_DRIVE_CV].getValue());
+  p.driveHigh = coaldynamics::driveFromCv(
+      params[HIGH_DRIVE].getValue(), inputs[HIGH_DRIVE_INPUT].getVoltage(),
+      params[HIGH_DRIVE_CV].getValue());
   p.curveLow = curves[0].load(std::memory_order_relaxed);
   p.curveMid = curves[1].load(std::memory_order_relaxed);
   p.curveHigh = curves[2].load(std::memory_order_relaxed);

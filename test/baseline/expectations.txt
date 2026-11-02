@@ -18,3 +18,4 @@ T-ADAA-SINE | status=PASS
 T-ADAA-TANH | status=PASS
 T-ADAA-THD | status=PASS
 T-ADAA-CLEAN | status=PASS
+T-DRIVECV | status=PASS

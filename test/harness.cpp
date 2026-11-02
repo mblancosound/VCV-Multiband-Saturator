@@ -444,6 +444,39 @@ Outcome caseAdaaClean() {
   return o;
 }
 
+// ---------------- T-DRIVECV (G1) ----------------
+/** Ley del CV de Drive por banda (AC3 de specs/v2.6_control_spec.md 11):
+    knobEff = clamp(knob + (V/10)*att, 0, 1) y drive = 1 + 10*knobEff, luego
+    drive en [1, 11]. Se prueba la funcion compartida que usa el modulo, no
+    una copia: coaldynamics::driveFromCv() de src/Curves.hpp. */
+Outcome caseDriveCv() {
+  struct Check {
+    float knob, cv, att, expected;
+  };
+  const Check checks[] = {
+      {0.5f, 0.f, 1.f, 6.f},    // sin CV: 1 + 10*0.5
+      {0.5f, 10.f, 1.f, 11.f},  // +10 V con att 1: tope superior
+      {0.5f, -10.f, 1.f, 1.f},  // -10 V con att 1: tope inferior
+      {0.5f, 10.f, 0.f, 6.f},   // atenuador a cero: el CV se ignora
+      {0.5f, -10.f, 0.f, 6.f},  // idem en negativo
+      {0.9f, 10.f, 1.f, 11.f},  // clamp superior (knobEff 1.9 -> 1)
+      {0.1f, -10.f, 1.f, 1.f},  // clamp inferior (knobEff -0.9 -> 0)
+      {1.f, 0.f, 1.f, 11.f},    // knob a tope sin CV
+      {0.f, 0.f, 1.f, 1.f},     // knob a cero sin CV
+      {0.25f, 5.f, 0.5f, 6.f},  // 0.25 + 0.5*0.5 = 0.5 -> drive 6
+      {0.75f, 5.f, 1.f, 11.f},  // 0.75 + 0.5 = 1.25 -> clamp -> 11
+  };
+  double worst = 0.0;
+  for (const Check &c : checks) {
+    const double got = (double) coaldynamics::driveFromCv(c.knob, c.cv, c.att);
+    const double err = std::fabs(got - (double) c.expected);
+    if (err > worst)
+      worst = err;
+  }
+  Outcome o = {"T-DRIVECV", "drive", worst, 1e-6, "unidades", worst <= 1e-6};
+  return o;
+}
+
 // ---------------- T-DC ----------------
 Outcome caseDc() {
   static const int CV[2] = {coaldynamics::TUBE, coaldynamics::DIODE};
@@ -596,14 +629,14 @@ int main(int argc, char **argv) {
   }
   const std::vector<Expect> ex = loadExpectations(EXP);
 
-  const Outcome all[12] = {
+  const Outcome all[13] = {
       caseRecon(),       caseLat(),      caseTrim(),
       caseAlias(),       caseDc(),       caseNan(),
       caseMix(),         caseAdaaAlias("T-ADAA-FOLD", coaldynamics::FOLDBACK,
                                        -14.2),
       caseAdaaAlias("T-ADAA-SINE", coaldynamics::SINEFOLD, -12.4),
       caseAdaaAlias("T-ADAA-TANH", coaldynamics::TANH, -31.9),
-      caseAdaaThd(),     caseAdaaClean()};
+      caseAdaaThd(),     caseAdaaClean(), caseDriveCv()};
 
   int casos = 0;
   int p = 0;
@@ -611,7 +644,7 @@ int main(int argc, char **argv) {
   int f = 0;
   int exitCode = 0;
 
-  for (int i = 0; i < 12; ++i) {
+  for (int i = 0; i < 13; ++i) {
     const Outcome &o = all[i];
     if (!only.empty() && only != o.id) continue;
     ++casos;

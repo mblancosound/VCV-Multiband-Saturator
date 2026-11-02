@@ -186,6 +186,17 @@ inline float applyCurveAdaa(float u, float &uPrev, int curve) {
   return y;
 }
 
+/** Ley de Drive con CV (G1). Lineal en unidades de knob, con el divisor
+    unificado /10 del resto de CV: knobEff = clamp(knob + (cv/10)*att, 0, 1)
+    y drive = 1 + 10*knobEff, de modo que drive vive en [1, 11] y es
+    inversible con el knob. Con el CV desconectado (0 V) el resultado es
+    bit-identico a la version sin CV. */
+inline float driveFromCv(float knob, float cv, float att) {
+  const float knobEff = knob + (cv / 10.f) * att;
+  const float clamped = knobEff < 0.f ? 0.f : (knobEff > 1.f ? 1.f : knobEff);
+  return 1.f + 10.f * clamped;
+}
+
 /** Nombres para el menu contextual, en el orden del enum. */
 inline const std::vector<std::string> &curveNames() {
   static const std::vector<std::string> names = {

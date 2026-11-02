@@ -426,6 +426,14 @@ SaturatorWidget::SaturatorWidget(Saturator *module) {
   addParam(createParamCentered<Knob20>(Vec(217.4, 299.6), module,
                                        Saturator::HIGH_VOL_CV));
 
+  // Atenuadores CV de Drive por banda (G1)
+  addParam(createParamCentered<Knob20>(Vec(67.5, 325), module,
+                                       Saturator::LOW_DRIVE_CV));
+  addParam(createParamCentered<Knob20>(Vec(135, 325), module,
+                                       Saturator::MID_DRIVE_CV));
+  addParam(createParamCentered<Knob20>(Vec(202.5, 325), module,
+                                       Saturator::HIGH_DRIVE_CV));
+
   // Entradas de Audio
   addInput(createInputCentered<CustomInputPort>(Vec(47.3, 352.6), module,
                                                 Saturator::IN_L));
@@ -451,6 +459,14 @@ SaturatorWidget::SaturatorWidget(Saturator *module) {
                                                 Saturator::HIGH_PAN_INPUT));
   addInput(createInputCentered<CustomInputPort>(Vec(217.4, 273), module,
                                                 Saturator::HIGH_VOL_INPUT));
+
+  // Entradas CV de Drive por banda (G1)
+  addInput(createInputCentered<CustomInputPort>(Vec(67.5, 240), module,
+                                                Saturator::LOW_DRIVE_INPUT));
+  addInput(createInputCentered<CustomInputPort>(Vec(135, 240), module,
+                                                Saturator::MID_DRIVE_INPUT));
+  addInput(createInputCentered<CustomInputPort>(Vec(202.5, 240), module,
+                                                Saturator::HIGH_DRIVE_INPUT));
 }
 
 void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
