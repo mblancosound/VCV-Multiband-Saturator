@@ -221,9 +221,8 @@ void Saturator::applyAdaa(int on) {
 }
 
 void Saturator::resetAdaaState() {
-  uPrevLowL = uPrevLowR = 0.f;
-  uPrevMidL = uPrevMidR = 0.f;
-  uPrevHighL = uPrevHighR = 0.f;
+  for (int b = 0; b < 3; b++)
+    uPrev[b][0] = uPrev[b][1] = 0.f;
   adaaResync[0] = adaaResync[1] = adaaResync[2] = true;
   adaaCurveApplied[0] = adaaCurveApplied[1] = adaaCurveApplied[2] = -1;
 }
@@ -356,22 +355,28 @@ void Saturator::dataFromJson(json_t *rootJ) {
       (linkJ && json_is_boolean(linkJ)) ? json_boolean_value(linkJ) : false;
 }
 
-/** Elige la topologia del crossover una sola vez por bloque: con LR4 el
-compilador genera dos versiones de processBands y no queda ninguna rama por
-muestra en el reparto de bandas. El ADAA si conserva su rama por submuestra,
-que es predecible y no cambia con el patch. */
+/** Elige topologia y ADAA una sola vez por bloque: los dos son parametros de
+plantilla, de modo que el compilador genera una version de processBands por
+combinacion y no queda ninguna rama por muestra ni por submuestra. */
 template <class Stage>
 void Saturator::processBlock(Stage &stage, const OSParams &p, float inL,
                              float inR, float &outL, float &outR) {
-  if (crossover == 1)
-    processBands<Stage, true>(stage, p, inL, inR, outL, outR);
-  else
-    processBands<Stage, false>(stage, p, inL, inR, outL, outR);
+  if (crossover == 1) {
+    if (adaa == 1)
+      processBands<Stage, true, true>(stage, p, inL, inR, outL, outR);
+    else
+      processBands<Stage, true, false>(stage, p, inL, inR, outL, outR);
+  } else {
+    if (adaa == 1)
+      processBands<Stage, false, true>(stage, p, inL, inR, outL, outR);
+    else
+      processBands<Stage, false, false>(stage, p, inL, inR, outL, outR);
+  }
 }
 
 /** Procesa un bloque de Stage::FACTOR submuestras: filtros + curva + pan/vol a
 frecuencia sobremuestreada, y decimacion de la suma de bandas. */
-template <class Stage, bool LR4>
+template <class Stage, bool LR4, bool ADAA>
 void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
                              float inR, float &outL, float &outR) {
   const int N = Stage::FACTOR;
@@ -382,7 +387,8 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
 
   stage.upsample(inL, inR, highL, highR);
 
-  const int adaaOn = adaa;   // lectura unica por bloque
+  // Curva por banda, leida una vez por bloque.
+  const int curve[3] = {p.curveLow, p.curveMid, p.curveHigh};
 
   for (int i = 0; i < N; i++) {
     float xL = highL[i];
@@ -408,88 +414,67 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
       upperR = highFilterR.process(xR);
     }
 
-    const float uLowL = coaldynamics::curveDrive(lowL, p.driveLow, p.curveLow);
-    const float uLowR = coaldynamics::curveDrive(lowR, p.driveLow, p.curveLow);
-    const float uMidL = coaldynamics::curveDrive(midL, p.driveMid, p.curveMid);
-    const float uMidR = coaldynamics::curveDrive(midR, p.driveMid, p.curveMid);
-    const float uHighL =
-        coaldynamics::curveDrive(upperL, p.driveHigh, p.curveHigh);
-    const float uHighR =
-        coaldynamics::curveDrive(upperR, p.driveHigh, p.curveHigh);
+    // u[banda][canal] en voltios post-curveDrive.
+    float u[3][2];
+    u[0][0] = coaldynamics::curveDrive(lowL, p.driveLow, curve[0]);
+    u[0][1] = coaldynamics::curveDrive(lowR, p.driveLow, curve[0]);
+    u[1][0] = coaldynamics::curveDrive(midL, p.driveMid, curve[1]);
+    u[1][1] = coaldynamics::curveDrive(midR, p.driveMid, curve[1]);
+    u[2][0] = coaldynamics::curveDrive(upperL, p.driveHigh, curve[2]);
+    u[2][1] = coaldynamics::curveDrive(upperR, p.driveHigh, curve[2]);
 
-    // Resync: uPrev = u en la PRIMERA submuestra del bloque, por banda y canal.
-    // Tras el resync, applyCurveAdaa ve du = 0 -> fallback -> f(u).
-    if (adaaOn && i == 0) {
-      if (adaaResync[0]) {
-        uPrevLowL = uLowL;
-        uPrevLowR = uLowR;
-        adaaResync[0] = false;
+    float wet[3][2];
+    if (ADAA) {
+      // Resync: uPrev = u en la PRIMERA submuestra del bloque, por banda y
+      // canal. Tras el resync applyCurveAdaa ve du = 0 -> fallback -> f(u).
+      // Solo ocurre cuando lo marca process() (cambio de curva) o resetAdaaState().
+      if (i == 0) {
+        for (int b = 0; b < 3; b++) {
+          if (adaaResync[b]) {
+            uPrev[b][0] = u[b][0];
+            uPrev[b][1] = u[b][1];
+            adaaResync[b] = false;
+          }
+        }
       }
-      if (adaaResync[1]) {
-        uPrevMidL = uMidL;
-        uPrevMidR = uMidR;
-        adaaResync[1] = false;
+      for (int b = 0; b < 3; b++) {
+        wet[b][0] = coaldynamics::applyCurveAdaa(u[b][0], uPrev[b][0], curve[b]);
+        wet[b][1] = coaldynamics::applyCurveAdaa(u[b][1], uPrev[b][1], curve[b]);
       }
-      if (adaaResync[2]) {
-        uPrevHighL = uHighL;
-        uPrevHighR = uHighR;
-        adaaResync[2] = false;
-      }
-    }
-
-    float wetLowL, wetLowR, wetMidL, wetMidR, wetUpperL, wetUpperR;
-    if (adaaOn) {
-      wetLowL = coaldynamics::applyCurveAdaa(uLowL, uPrevLowL, p.curveLow);
-      wetLowR = coaldynamics::applyCurveAdaa(uLowR, uPrevLowR, p.curveLow);
-      wetMidL = coaldynamics::applyCurveAdaa(uMidL, uPrevMidL, p.curveMid);
-      wetMidR = coaldynamics::applyCurveAdaa(uMidR, uPrevMidR, p.curveMid);
-      wetUpperL =
-          coaldynamics::applyCurveAdaa(uHighL, uPrevHighL, p.curveHigh);
-      wetUpperR =
-          coaldynamics::applyCurveAdaa(uHighR, uPrevHighR, p.curveHigh);
     } else {
-      // Ruta v2.5.0 exacta.
-      wetLowL = coaldynamics::applyCurve(uLowL, p.curveLow);
-      wetLowR = coaldynamics::applyCurve(uLowR, p.curveLow);
-      wetMidL = coaldynamics::applyCurve(uMidL, p.curveMid);
-      wetMidR = coaldynamics::applyCurve(uMidR, p.curveMid);
-      wetUpperL = coaldynamics::applyCurve(uHighL, p.curveHigh);
-      wetUpperR = coaldynamics::applyCurve(uHighR, p.curveHigh);
+      // Ruta v2.5.0 exacta: sin historial y sin rama.
+      for (int b = 0; b < 3; b++) {
+        wet[b][0] = coaldynamics::applyCurve(u[b][0], curve[b]);
+        wet[b][1] = coaldynamics::applyCurve(u[b][1], curve[b]);
+      }
     }
 
     // Ley de pan: balance lineal con corte total (G_L=min(1,1-p),
     // G_R=min(1,1+p)); nunca gana >1
     float lowOutL =
-        wetLowL * p.volLow * std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
+        wet[0][0] * p.volLow * std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
     float lowOutR =
-        wetLowR * p.volLow * std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
+        wet[0][1] * p.volLow * std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
 
     float midOutL =
-        wetMidL * p.volMid * std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
+        wet[1][0] * p.volMid * std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
     float midOutR =
-        wetMidR * p.volMid * std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
+        wet[1][1] * p.volMid * std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
 
-    float upperOutL = wetUpperL * p.volHigh *
+    float upperOutL = wet[2][0] * p.volHigh *
                       std::min(1.f, 1.f - p.panHigh) * p.soloGainHigh;
-    float upperOutR = wetUpperR * p.volHigh *
+    float upperOutR = wet[2][1] * p.volHigh *
                       std::min(1.f, 1.f + p.panHigh) * p.soloGainHigh;
 
     wetL[i] = lowOutL + midOutL + upperOutL;
     wetR[i] = lowOutR + midOutR + upperOutR;
 
     if (i == N - 1) {
-      satLowMeter = std::min(
-          std::abs(wetLowL -
-                   coaldynamics::curveDrive(lowL, p.driveLow, p.curveLow)),
-          1.f);
-      satMidMeter = std::min(
-          std::abs(wetMidL -
-                   coaldynamics::curveDrive(midL, p.driveMid, p.curveMid)),
-          1.f);
-      satHighMeter = std::min(
-          std::abs(wetUpperL -
-                   coaldynamics::curveDrive(upperL, p.driveHigh, p.curveHigh)),
-          1.f);
+      // Medidor de la ultima submuestra, sin cambios desde v2.2: |wet - u| es
+      // cuanto ha movido la curva a la entrada ya escalada por el drive.
+      satLowMeter = std::min(std::abs(wet[0][0] - u[0][0]), 1.f);
+      satMidMeter = std::min(std::abs(wet[1][0] - u[1][0]), 1.f);
+      satHighMeter = std::min(std::abs(wet[2][0] - u[2][0]), 1.f);
     }
   }
 

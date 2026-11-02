@@ -105,11 +105,10 @@ struct Saturator : Module {
       la consume el hilo de audio con exchange(). */
   std::atomic<int> pendingAdaa{-1};
 
-  /** Historial ADAA1: u_prev por banda (0 = Low, 1 = Mid, 2 = High) y canal.
-      Solo hilo de audio. Solo se actualiza con curvas que soportan ADAA. */
-  float uPrevLowL = 0.f, uPrevLowR = 0.f;
-  float uPrevMidL = 0.f, uPrevMidR = 0.f;
-  float uPrevHighL = 0.f, uPrevHighR = 0.f;
+  /** Historial ADAA1: u_prev[banda][canal], con banda 0 = Low, 1 = Mid,
+      2 = High. Solo hilo de audio. Solo se actualiza con curvas que
+      soportan ADAA. */
+  float uPrev[3][2] = {};
 
   /** Resync pendiente por banda: en la submuestra i == 0 del bloque se hace
       uPrev = u (una vez por banda) para no arrastrar historia de otra curva
@@ -199,12 +198,12 @@ struct Saturator : Module {
 
   void onReset() override;
 
-  /** Elige topologia una vez por bloque (no por muestra). */
+  /** Elige topologia y ADAA una vez por bloque (no por muestra). */
   template <class Stage>
   void processBlock(Stage &stage, const OSParams &p, float inL, float inR,
                     float &outL, float &outR);
 
-  template <class Stage, bool LR4>
+  template <class Stage, bool LR4, bool ADAA>
   void processBands(Stage &stage, const OSParams &p, float inL, float inR,
                     float &outL, float &outR);
 };
