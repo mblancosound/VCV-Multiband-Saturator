@@ -6,7 +6,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin slug: `Coal_Dynamics`
 - Module: `Multiband Saturator` (`Multiband_Saturator`)
-- Version: `2.5.0`
+- Version: `2.6.0`
 - License: MIT (see `LICENSE.txt`)
 
 ## Features
@@ -16,6 +16,8 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 - Oversampling 1x / 2x / 4x / 8x (default **1x / off**; opt-in)
 - Per-band saturation curve selector (Clean/Tanh/Cubic/Arctan/Hard/Foldback/Sine Fold/Tube/Diode), independent for Low/Mid/High
 - Per-band solo (respects MIX) and curve copy (Low/Mid/High → all) in the context menu
+- Crossover split selectable: `Legacy` (v2.5.0, default) or `LR4` perfect-reconstruction 4th-order Linkwitz-Riley (v2.6.0)
+- ADAA (first-order anti-derivative anti-aliasing) on Tanh/Cubic/Arctan/Hard/Foldback/Sine Fold (v2.6.0, default off)
 - Read-only status info in the menu (sample rate, oversampling factor, latency, version)
 - Master Output volume + Mix (dry/wet)
 - Custom SVG knobs, ports and panel in `res/`
@@ -36,6 +38,42 @@ Measured at 48 kHz with a 5 kHz sine and full drive: worst in-band aliasing is �
 
 The wet path also has a 15 Hz first-order DC blocker (always on, after the band sum). It removes the offset
 from asymmetric curves (Diode/Tube) at the cost of about −1.9 dB at 20 Hz.
+
+## Crossover (v2.6.0)
+
+Right-click -> **Crossover** -> `Legacy` / `LR4`. `Legacy` is the v2.5.0 split and stays bit-identical;
+`LR4` is a 4th-order Linkwitz-Riley split built from two cascaded Butterworth stages (Q = 0.707 at `fc`
+and at `fc*sqrt(2)`), with the Mid band reconstructed as `x - low - high`, so the three bands always sum
+back to the input. Saved in the patch as `"crossover": "legacy"|"lr4"`; old patches, and any value other
+than `"lr4"`, load as `Legacy`. Changing the mode resets the crossover state and can produce a short
+**click**: it is a setup control.
+
+`Legacy` leaves a reconstruction notch of **-9.91 dB at 500 Hz** (three bands at unity gain, Clean
+curve). With `LR4` the measured deviation from the analytic response is **0.0085 dB** over
+20 Hz ... 15 kHz.
+
+## Anti-aliasing (ADAA, v2.6.0)
+
+Right-click -> **ADAA** -> `Off` / `On`. `Off` is the v2.5.0 behaviour and stays bit-identical. `On`
+applies first-order anti-derivative anti-aliasing to **Tanh, Cubic, Arctan, Hard, Foldback and Sine
+Fold**: instead of `f(u)` the band outputs `(F(u) - F(u_prev)) / (u - u_prev)` with `F = integral of f`,
+falling back to `f(u)` when the sample-to-sample step is below 1e-3 V. **Clean, Tube and Diode** are not
+covered and always run the direct curve. Saved in the patch as `"adaa": true|false`; old patches, and any
+value other than boolean `true`, load as `Off`.
+
+Measured worst in-band alias (below 20 kHz) at 5 kHz, full drive, 3-band sum, in dB:
+
+| Curve | 1x off | 1x on | 4x off | 4x on |
+| --- | ---: | ---: | ---: | ---: |
+| Tanh | -4.2 | -14.7 | -25.9 | -46.3 |
+| Cubic | -8.8 | -23.1 | -22.8 | -48.9 |
+| Arctan | -5.2 | -15.7 | -28.4 | -48.8 |
+| Hard | -3.9 | -14.2 | -24.2 | -44.7 |
+| Foldback | +5.3 | -2.4 | -8.2 | -28.9 |
+| Sine Fold | +1.2 | -4.2 | -6.4 | -34.8 |
+
+The cost in the audible band is small: at 1 kHz, 50 % drive, Tanh, THD+N changes by **+0.38 dB** on a
+single band. It pays off most combined with 2x or more.
 
 ## Curves (v2.2.1)
 
@@ -66,7 +104,7 @@ inputs down to ~±1 while Clean does not. Gain control (per band or OUTPUT_VOL) 
 
 **Alias warning** (measured at 5 kHz, 100 % drive, full 3-band chain). At 4x, these exceed −25 dB: Foldback
 −8.2 dB, Sine Fold −6.4 dB, Cubic −22.8 dB, Hard −24.2 dB and Tube −23.5 dB. At 8x, Foldback is still
-−8.5 dB. There is no ADAA in v2.2.1: lower the drive or use 8x.
+-8.5 dB. v2.2.1 had no ADAA; from v2.6.0 it can be enabled (see *Anti-aliasing*), or lower the drive or use 8x.
 
 **Methodology note.** The Oversampling table above (−32.8 dB at 4x) was measured with the v2.1.0 method
 (isolated high band/curve) and is not directly comparable with this table, which sums the 3 bands and
@@ -89,14 +127,16 @@ Right-click the module:
 - **Copy Curve** → `Low to all` / `Mid to all` / `High to all`. Copies the current curve of that
   band to the three bands. It uses the existing `"curves"` key, so nothing new is saved. It can
   click, exactly like picking a curve by hand.
-- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.5.0` — sample rate, oversampling
+- **Crossover** -> `Legacy` / `LR4`. See *Crossover* above. Undoable (*Undo change crossover*).
+- **ADAA** -> `Off` / `On`. See *Anti-aliasing* above. Undoable (*Undo toggle adaa*).
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.6.0`— sample rate, oversampling
   factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 The saturation lights keep metering each band **before** the solo, so a muted band still shows its
 saturation level.
 
-**Undo (v2.4.0, extended in v2.5.0).** The context-menu actions — curve change, the linked change (one
-single entry for the three bands), **Copy Curve** (also one single entry), **Solo**, **Oversampling**
+**Undo (v2.4.0, extended in v2.5.0 and v2.6.0).** The context-menu actions — curve change, the linked change (one
+single entry for the three bands), **Copy Curve** (also one single entry), **Solo**, **Oversampling**, **Crossover**, **ADAA**
 and the **Link curves** toggle — are undoable with **Ctrl+Z** and redoable with **Ctrl+Shift+Z**,
 using Rack's standard history (e.g. *Undo change curve*, *Undo change curves*, *Undo toggle link
 curves*). Re-selecting an already active option creates no history entry, and loading a patch is never
@@ -145,7 +185,7 @@ LICENSE.txt
 ## Install (from source)
 
 1. `make dist`
-2. Copy `dist/Coal_Dynamics-2.5.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
+2. Copy `dist/Coal_Dynamics-2.6.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
 3. Restart Rack.
 
 ## License

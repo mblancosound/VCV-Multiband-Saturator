@@ -356,8 +356,10 @@ void Saturator::dataFromJson(json_t *rootJ) {
       (linkJ && json_is_boolean(linkJ)) ? json_boolean_value(linkJ) : false;
 }
 
-/** Elige la topologia una sola vez por bloque: con LR4 el compilador genera
-dos versiones de processBands y no queda ninguna rama por muestra. */
+/** Elige la topologia del crossover una sola vez por bloque: con LR4 el
+compilador genera dos versiones de processBands y no queda ninguna rama por
+muestra en el reparto de bandas. El ADAA si conserva su rama por submuestra,
+que es predecible y no cambia con el patch. */
 template <class Stage>
 void Saturator::processBlock(Stage &stage, const OSParams &p, float inL,
                              float inR, float &outL, float &outR) {
