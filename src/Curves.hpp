@@ -110,6 +110,82 @@ inline float curveDrive(float banda, float drive, int curve) {
   return (curve == CLEAN) ? banda : banda * drive;
 }
 
+/** Umbral del fallback ADAA1, en unidades de u (voltios post-curveDrive). */
+static const float ADAA_EPS = 1e-3f;
+
+inline float logCosh(float u) {
+  const float a = std::fabs(u);
+  if (a < 0.5f) {
+    const float s = std::sinh(0.5f * a);
+    return std::log1p(2.f * s * s);              // ln(1 + 2 sinh^2(a/2))
+  }
+  return a + std::log1p(std::exp(-2.f * a)) - 0.6931471805599453f;
+}
+
+inline bool curveSupportsAdaa(int curve) {
+  return curve == TANH || curve == CUBIC || curve == ARCTAN ||
+         curve == HARD || curve == FOLDBACK || curve == SINEFOLD;
+}
+
+inline float curveAntiderivative(float u, int curve) {
+  float y;
+  switch (curve) {
+    case TANH:
+      y = logCosh(u);
+      break;
+    case CUBIC: {
+      const float a = std::fabs(u);
+      y = (a <= 2.f) ? a * a * (0.75f - 0.125f * a * a) : (3.f - a);
+      break;
+    }
+    case ARCTAN: {
+      const float pi = 3.14159265358979f;
+      const float w = 0.5f * pi * u;
+      y = (4.f / (pi * pi)) * (w * std::atan(w) - 0.5f * std::log1p(w * w));
+      break;
+    }
+    case HARD: {
+      const float a = std::fabs(u);
+      y = (a <= 1.f) ? 0.5f * a * a : (a - 0.5f);
+      break;
+    }
+    case FOLDBACK: {
+      float p = std::fmod(u, 4.f);
+      if (p < 0.f)
+        p += 4.f;
+      if (p <= 1.f)
+        y = 0.5f * p * p;
+      else if (p <= 3.f)
+        y = 2.f * p - 0.5f * p * p - 1.f;
+      else
+        y = 0.5f * p * p - 4.f * p + 8.f;
+      break;
+    }
+    case SINEFOLD:
+      y = -std::cos(u);
+      break;
+    default:
+      y = logCosh(u);
+      curve = TANH;
+      break;
+  }
+  return y * TRIM[curve];
+}
+
+inline float applyCurveAdaa(float u, float &uPrev, int curve) {
+  if (!curveSupportsAdaa(curve))
+    return applyCurve(u, curve);                 // CLEAN/TUBE/DIODE: directa, SIN tocar uPrev
+  const float du = u - uPrev;
+  float y;
+  if (std::fabs(du) >= ADAA_EPS)
+    y = (curveAntiderivative(u, curve) -
+         curveAntiderivative(uPrev, curve)) / du;
+  else
+    y = applyCurve(u, curve);                    // fallback epsilon
+  uPrev = u;
+  return y;
+}
+
 /** Nombres para el menu contextual, en el orden del enum. */
 inline const std::vector<std::string> &curveNames() {
   static const std::vector<std::string> names = {

@@ -54,6 +54,16 @@ void requestCrossover(Saturator *saturator, int mode) {
   saturator->setCrossover(mode);
 }
 
+/** Solicita el toggle de ADAA desde una undo/redo. Mismo patron que
+    requestCrossover: solo deja la peticion pendiente. */
+void requestAdaa(Saturator *saturator, int mode) {
+  if (mode == saturator->adaa) {
+    saturator->pendingAdaa.store(-1, std::memory_order_relaxed);
+    return;
+  }
+  saturator->setAdaa(mode);
+}
+
 // --- Acciones de historial (una clase por operacion del menu) ---------------
 
 /** Cambio de curva de una banda (Low/Mid/High). */
@@ -196,6 +206,28 @@ struct CrossoverAction : history::ModuleAction {
   }
 };
 
+/** Toggle de ADAA (0 = off, 1 = on). */
+struct AdaaAction : history::ModuleAction {
+  int oldMode = 0;
+  int newMode = 0;
+
+  AdaaAction() { name = "toggle adaa"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    requestAdaa(s, oldMode);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    requestAdaa(s, newMode);
+  }
+};
+
 // --- Helpers de los menus: aplicar + registrar (o no-op si no cambia) -------
 
 /** Escribe newCurve en las tres bandas y registra UNA sola entrada de
@@ -308,6 +340,22 @@ void pushCrossoverHistory(Saturator *saturator, int mode) {
   requestCrossover(saturator, mode);
 
   CrossoverAction *action = new CrossoverAction;
+  action->moduleId = saturator->id;
+  action->oldMode = oldMode;
+  action->newMode = mode;
+  APP->history->push(action);
+}
+
+void pushAdaaHistory(Saturator *saturator, int mode) {
+  // Valor efectivo: la peticion pendiente (-1 = ninguna) cuenta como actual
+  // hasta que el hilo de audio la aplica al principio del siguiente bloque.
+  int pending = saturator->pendingAdaa.load(std::memory_order_relaxed);
+  int oldMode = (pending != -1) ? pending : saturator->adaa;
+  if (oldMode == mode)
+    return;
+  requestAdaa(saturator, mode);
+
+  AdaaAction *action = new AdaaAction;
   action->moduleId = saturator->id;
   action->oldMode = oldMode;
   action->newMode = mode;
@@ -436,6 +484,13 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
       "Crossover", {"Legacy", "LR4"},
       [=]() { return (size_t) (saturator->crossover == 1 ? 1 : 0); },
       [=](size_t index) { pushCrossoverHistory(saturator, (int) index); }));
+
+  // ADAA (v2.6.0): Off = comportamiento v2.5.0; On = antiderivada con
+  // fallback (CLEAN/TUBE/DIODE siguen en ruta directa). Undoable.
+  menu->addChild(createIndexSubmenuItem(
+      "ADAA", {"Off", "On"},
+      [=]() { return (size_t) (saturator->adaa != 0 ? 1 : 0); },
+      [=](size_t index) { pushAdaaHistory(saturator, (int) index); }));
 
   menu->addChild(new ui::MenuSeparator);
 

@@ -168,4 +168,31 @@ inline double aliasWorstDb(const std::vector<double> &mag, double fs,
   return 20.0 * std::log10(worst / fund);
 }
 
+// THD+N en dB: 20*log10(sqrt(sum|X_k|^2) / pico_fundamental), sumando bins con
+// f >= 20 Hz y EXCLUYENDO el fundamental (k0-4 .. k0+4). Mismos criterios de
+// ventana y de k0 que aliasWorstDb.
+inline double thdPlusNDb(const std::vector<double> &mag, double fs,
+                         std::size_t nfft, double f0) {
+  if (mag.empty() || nfft == 0) return -300.0;
+  const double bin = fs / static_cast<double>(nfft);
+  if (bin <= 0.0) return -300.0;
+
+  const long k0 = static_cast<long>(std::floor(f0 / bin + 0.5));
+  const long half = static_cast<long>(nfft) / 2;
+
+  double sum = 0.0;
+  for (long k = 1; k < half; ++k) {
+    if (k >= k0 - 4 && k <= k0 + 4) continue;
+    if (binHz(fs, nfft, static_cast<std::size_t>(k)) < 20.0) continue;
+    const double v = mag[static_cast<std::size_t>(k)];
+    sum += v * v;
+  }
+
+  const double fund = (k0 >= 0 && static_cast<std::size_t>(k0) < mag.size())
+                          ? mag[static_cast<std::size_t>(k0)]
+                          : 0.0;
+  if (fund <= 0.0) return -300.0;
+  return 20.0 * std::log10(std::sqrt(sum) / fund);
+}
+
 }  // namespace cdt

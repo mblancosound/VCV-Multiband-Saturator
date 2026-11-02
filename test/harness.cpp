@@ -306,6 +306,32 @@ double measureAlias(int curve, int n) {
   return cdt::aliasWorstDb(mag, FS, NFFT, 5000.0, FS / 2.f, 4);
 }
 
+/** Copia de measureAlias() con ADAA1 activo (F2). El limite se compara contra
+    el valor absoluto de specs/v2.6_quality_spec.md §7, no contra el baseline.
+
+    Banda de medida: 20 kHz (no FS/2). Los limites de §7 (criterios 6-8) se
+    derivan de la baseline de §4.2, declarada explicitamente como "peor alias
+    in-band no armonico <20 kHz" (v2.6_quality_spec.md:68-70): con fMax=20 kHz
+    la baseline ADAA-off de TANH 4x da -25.86 dB, que es el -25.9 dB de la
+    spec (con fMax=FS/2 da -13.17 dB). Por encima de 20 kHz el suelo esta
+    dominado por la fuga del 5o armonico (25 kHz) en la banda de transicion
+    del decimador del LocalStage, que cae en 23 kHz: es energia que ADAA no
+    puede corregir y que deja los tres limites inalcanzables. */
+double measureAliasAdaa(int curve, int n) {
+  cdt::OfflineChain ch;
+  ch.configure(FS, n);
+  configureCurves(ch, curve, 11.f);
+  ch.p.adaa = 1;
+  ch.p.mix = 1.f;
+  ch.p.outVol = 1.f;
+
+  std::vector<float> in, out;
+  runSine(ch, 5000.0, DISCARD + NFFT, in, out);
+  std::vector<float> seg(out.begin() + DISCARD, out.end());
+  const std::vector<double> mag = cdt::spectrum(seg, NFFT);
+  return cdt::aliasWorstDb(mag, FS, NFFT, 5000.0, 20000.0, 4);
+}
+
 Outcome caseAlias() {
   std::vector<AliasEntry> base;
   if (!loadAlias("baseline/alias_v2.5.0.txt", base)) {
@@ -325,6 +351,96 @@ Outcome caseAlias() {
     }
   }
   Outcome o = {"T-ALIAS", "alias", worst, 1.0, "dB", worst <= 1.0};
+  return o;
+}
+
+// ---------------- T-ADAA (F2) ----------------
+/** Alias in-band con ADAA: FOLDBACK, SINEFOLD y TANH a 4x, 5 kHz, Vpk 5,
+    drive 11 (specs/v2.6_quality_spec.md §7 criterios 6-8). */
+Outcome caseAdaaAlias(const char *id, int curve, double limitDB) {
+  const double a = measureAliasAdaa(curve, 4);
+  Outcome o = {id, "alias", a, limitDB, "dB", a <= limitDB};
+  return o;
+}
+
+/** THD+N de UNA banda a 1 kHz con ADAA on/off (n = 1). Se aisla la banda Mid
+    (soloBand = 1) para medir una sola instancia del operador ADAA1: la suma de
+    las tres bandas saturadas añade +0.21 dB no atribuibles al algoritmo
+    (medido 2026-11-02, ver specs/v2.6_adaa_contract.md §8.3). */
+double thdNAdaa(int curve, float drive, int adaaOn) {
+  cdt::OfflineChain ch;
+  ch.configure(FS, 1);
+  configureCurves(ch, curve, drive);
+  ch.p.soloBand = 1;
+  ch.p.adaa = adaaOn;
+  ch.p.mix = 1.f;
+  ch.p.outVol = 1.f;
+
+  std::vector<float> in, out;
+  runSine(ch, 1000.0, DISCARD + NFFT, in, out);
+  std::vector<float> seg(out.begin() + DISCARD, out.end());
+  const std::vector<double> mag = cdt::spectrum(seg, NFFT);
+  return cdt::thdPlusNDb(mag, FS, NFFT, 1000.0);
+}
+
+/** Criterio 5: TANH 1 kHz, drive 6, d(THD+N) <= +0.5 dB. */
+Outcome caseAdaaThd() {
+  const double off = thdNAdaa(coaldynamics::TANH, 6.f, 0);
+  const double on = thdNAdaa(coaldynamics::TANH, 6.f, 1);
+  const double delta = on - off;
+  Outcome o = {"T-ADAA-THD", "dTHD+N", delta, 0.5, "dB", delta <= 0.5};
+  return o;
+}
+
+/** Criterio 10 (T-ADAA-CLEAN): con CLEAN y lr4 = 1, ADAA on y off deben dar la
+    misma salida (|d| < 1e-6) y no debe haber atenuacion (|G - G_exp| < 0.01 dB
+    a 1 kHz y 15 kHz). 1x, vol 0.8, pan 0. */
+Outcome caseAdaaClean() {
+  static const double F[2] = {1000.0, 15000.0};
+  const double trimVol =
+      static_cast<double>(coaldynamics::TRIM[coaldynamics::CLEAN]) * 0.8;
+  double maxDiff = 0.0;
+  bool gainOk = true;
+
+  for (int k = 0; k < 2; ++k) {
+    // Un UNICO punto de llamada para las dos variantes (s = 0: ADAA off,
+    // s = 1: ADAA on). Con -O3 -funsafe-math-optimizations GCC reasocia de
+    // forma distinta dos instancias de OfflineChain inlinadas por separado
+    // (divergencia medida: 2.98e-6 con dos objetos, 0 con un solo call site),
+    // lo que mediria al compilador y no la transparencia de CLEAN.
+    cdt::OfflineChain ch[2];
+    std::vector<float> in[2], out[2];
+    for (int s = 0; s < 2; ++s) {
+      ch[s].p.lr4 = 1;
+      ch[s].configure(FS, 1);
+      configureCurves(ch[s], coaldynamics::CLEAN, 1.f);
+      ch[s].p.volLow = 0.8f;
+      ch[s].p.volMid = 0.8f;
+      ch[s].p.volHigh = 0.8f;
+      ch[s].p.mix = 1.f;
+      ch[s].p.outVol = 1.f;
+      ch[s].p.adaa = s;
+    }
+
+    for (int s = 0; s < 2; ++s) runSine(ch[s], F[k], BLOCK, in[s], out[s]);
+
+    const std::size_t n = std::min(out[0].size(), out[1].size());
+    for (std::size_t i = 0; i < n; ++i) {
+      const double d = std::fabs(static_cast<double>(out[0][i]) -
+                                 static_cast<double>(out[1][i]));
+      if (d > maxDiff) maxDiff = d;
+    }
+
+    const double hdc = F[k] / std::sqrt(F[k] * F[k] + 225.0);
+    const double expected = cdt::db20(trimVol * hdc);
+    const std::size_t from = BLOCK / 4;
+    const double g = cdt::db20(cdt::rms(tailFrom(out[1], from)) /
+                               cdt::rms(tailFrom(in[1], from)));
+    if (std::fabs(g - expected) >= 0.01) gainOk = false;
+  }
+
+  Outcome o = {"T-ADAA-CLEAN", "delta", maxDiff, 1e-6, "unidades",
+               maxDiff < 1e-6 && gainOk};
   return o;
 }
 
@@ -480,8 +596,14 @@ int main(int argc, char **argv) {
   }
   const std::vector<Expect> ex = loadExpectations(EXP);
 
-  const Outcome all[7] = {caseRecon(), caseLat(),  caseTrim(), caseAlias(),
-                          caseDc(),    caseNan(), caseMix()};
+  const Outcome all[12] = {
+      caseRecon(),       caseLat(),      caseTrim(),
+      caseAlias(),       caseDc(),       caseNan(),
+      caseMix(),         caseAdaaAlias("T-ADAA-FOLD", coaldynamics::FOLDBACK,
+                                       -14.2),
+      caseAdaaAlias("T-ADAA-SINE", coaldynamics::SINEFOLD, -12.4),
+      caseAdaaAlias("T-ADAA-TANH", coaldynamics::TANH, -31.9),
+      caseAdaaThd(),     caseAdaaClean()};
 
   int casos = 0;
   int p = 0;
@@ -489,7 +611,7 @@ int main(int argc, char **argv) {
   int f = 0;
   int exitCode = 0;
 
-  for (int i = 0; i < 7; ++i) {
+  for (int i = 0; i < 12; ++i) {
     const Outcome &o = all[i];
     if (!only.empty() && only != o.id) continue;
     ++casos;

@@ -98,6 +98,28 @@ struct Saturator : Module {
       el JSON; la consume el hilo de audio con exchange(). */
   std::atomic<int> pendingCrossover{-1};
 
+  /** ADAA1 (v2.6.0): 0 = off (default, comportamiento v2.5.0), 1 = on.
+      Solo lo escribe applyAdaa() en el hilo de audio. */
+  int adaa = 0;
+  /** Peticion pendiente de toggle (-1 = ninguna). La escriben la UI y el JSON;
+      la consume el hilo de audio con exchange(). */
+  std::atomic<int> pendingAdaa{-1};
+
+  /** Historial ADAA1: u_prev por banda (0 = Low, 1 = Mid, 2 = High) y canal.
+      Solo hilo de audio. Solo se actualiza con curvas que soportan ADAA. */
+  float uPrevLowL = 0.f, uPrevLowR = 0.f;
+  float uPrevMidL = 0.f, uPrevMidR = 0.f;
+  float uPrevHighL = 0.f, uPrevHighR = 0.f;
+
+  /** Resync pendiente por banda: en la submuestra i == 0 del bloque se hace
+      uPrev = u (una vez por banda) para no arrastrar historia de otra curva
+      ni de otro estado de filtros. Solo hilo de audio. */
+  bool adaaResync[3] = {true, true, true};
+
+  /** Ultima curva aplicada por banda (0..2). -1 = sin inicializar. Detecta el
+      cambio de curva en process() una vez por bloque (no por muestra). */
+  int adaaCurveApplied[3] = {-1, -1, -1};
+
   coaldynamics::OversampledStage<2, coaldynamics::OS_QUALITY> stage2;
   coaldynamics::OversampledStage<4, coaldynamics::OS_QUALITY> stage4;
   coaldynamics::OversampledStage<8, coaldynamics::OS_QUALITY> stage8;
@@ -166,6 +188,16 @@ struct Saturator : Module {
   /** Llamado desde el hilo de audio: resetea filtros y rehace coeficientes. */
   void applyCrossover(int mode);
   void updateFilterFrequencies();
+
+  /** Llamado desde UI/JSON: valida 0/1 y deja la peticion. */
+  void setAdaa(int on);
+  /** Llamado desde el hilo de audio: fija `adaa` y resetea el historial. */
+  void applyAdaa(int on);
+  /** Hilo de audio: uPrev = 0 en los 6 historiales + resync de las 3 bandas
+      + adaaCurveApplied = -1. Sin allocs, sin ramas por muestra. */
+  void resetAdaaState();
+
+  void onReset() override;
 
   /** Elige topologia una vez por bloque (no por muestra). */
   template <class Stage>

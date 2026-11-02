@@ -23,6 +23,8 @@ struct ChainParams {
   float outVol;
   /** 0 = crossover LEGACY (v2.5.0), 1 = LR4 (v2.6.0). */
   int lr4;
+  /** 0 = ADAA off (v2.5.0), 1 = ADAA1 on (v2.6.0). */
+  int adaa;
 
   ChainParams()
       : driveLow(1.f), driveMid(1.f), driveHigh(1.f),
@@ -30,7 +32,7 @@ struct ChainParams {
         curveHigh(coaldynamics::TANH),
         panLow(0.f), panMid(0.f), panHigh(0.f),
         volLow(1.f), volMid(1.f), volHigh(1.f),
-        soloBand(-1), mix(1.f), outVol(1.f), lr4(0) {}
+        soloBand(-1), mix(1.f), outVol(1.f), lr4(0), adaa(0) {}
 };
 
 // Replica offline de Saturator::process(). Copia la topologia y los
@@ -61,6 +63,14 @@ struct OfflineChain {
   int dryDelay;
   float soloGain[3];
   float dryGain;
+
+  /** Replica del historial ADAA1 de src/Saturator.hpp (v2.6.0): mismos
+      nombres que el modulo. u_prev por banda (Low/Mid/High) y canal. */
+  float uPrevLowL, uPrevLowR;
+  float uPrevMidL, uPrevMidR;
+  float uPrevHighL, uPrevHighR;
+  bool adaaResync[3];
+  int adaaCurveApplied[3];
 
   ChainParams p;
 
@@ -113,6 +123,12 @@ struct OfflineChain {
     soloGain[1] = 1.f;
     soloGain[2] = 1.f;
     dryGain = 1.f;
+
+    uPrevLowL = uPrevLowR = 0.f;
+    uPrevMidL = uPrevMidR = 0.f;
+    uPrevHighL = uPrevHighR = 0.f;
+    adaaResync[0] = adaaResync[1] = adaaResync[2] = true;
+    adaaCurveApplied[0] = adaaCurveApplied[1] = adaaCurveApplied[2] = -1;
   }
 
   template <class Stage>
@@ -125,6 +141,7 @@ struct OfflineChain {
     float wetR[8];
 
     stage.upsample(inL, inR, upL, upR);
+    const int adaaOn = p.adaa;
 
     for (int i = 0; i < N; ++i) {
       const float xL = upL[i];
@@ -149,20 +166,50 @@ struct OfflineChain {
         highRf = highR.process(xR);
       }
 
-      const float wetLowL = coaldynamics::applyCurve(
-          coaldynamics::curveDrive(lowLf, p.driveLow, p.curveLow), p.curveLow);
-      const float wetLowR = coaldynamics::applyCurve(
-          coaldynamics::curveDrive(lowRf, p.driveLow, p.curveLow), p.curveLow);
-      const float wetMidL = coaldynamics::applyCurve(
-          coaldynamics::curveDrive(midLf, p.driveMid, p.curveMid), p.curveMid);
-      const float wetMidR = coaldynamics::applyCurve(
-          coaldynamics::curveDrive(midRf, p.driveMid, p.curveMid), p.curveMid);
-      const float wetHighL = coaldynamics::applyCurve(
-          coaldynamics::curveDrive(highLf, p.driveHigh, p.curveHigh),
-          p.curveHigh);
-      const float wetHighR = coaldynamics::applyCurve(
-          coaldynamics::curveDrive(highRf, p.driveHigh, p.curveHigh),
-          p.curveHigh);
+      const float uLowL = coaldynamics::curveDrive(lowLf, p.driveLow, p.curveLow);
+      const float uLowR = coaldynamics::curveDrive(lowRf, p.driveLow, p.curveLow);
+      const float uMidL = coaldynamics::curveDrive(midLf, p.driveMid, p.curveMid);
+      const float uMidR = coaldynamics::curveDrive(midRf, p.driveMid, p.curveMid);
+      const float uHighL =
+          coaldynamics::curveDrive(highLf, p.driveHigh, p.curveHigh);
+      const float uHighR =
+          coaldynamics::curveDrive(highRf, p.driveHigh, p.curveHigh);
+
+      // Resync ADAA: uPrev = u en la primera submuestra del bloque.
+      if (adaaOn && i == 0) {
+        if (adaaResync[0]) {
+          uPrevLowL = uLowL;
+          uPrevLowR = uLowR;
+          adaaResync[0] = false;
+        }
+        if (adaaResync[1]) {
+          uPrevMidL = uMidL;
+          uPrevMidR = uMidR;
+          adaaResync[1] = false;
+        }
+        if (adaaResync[2]) {
+          uPrevHighL = uHighL;
+          uPrevHighR = uHighR;
+          adaaResync[2] = false;
+        }
+      }
+
+      float wetLowL, wetLowR, wetMidL, wetMidR, wetHighL, wetHighR;
+      if (adaaOn) {
+        wetLowL = coaldynamics::applyCurveAdaa(uLowL, uPrevLowL, p.curveLow);
+        wetLowR = coaldynamics::applyCurveAdaa(uLowR, uPrevLowR, p.curveLow);
+        wetMidL = coaldynamics::applyCurveAdaa(uMidL, uPrevMidL, p.curveMid);
+        wetMidR = coaldynamics::applyCurveAdaa(uMidR, uPrevMidR, p.curveMid);
+        wetHighL = coaldynamics::applyCurveAdaa(uHighL, uPrevHighL, p.curveHigh);
+        wetHighR = coaldynamics::applyCurveAdaa(uHighR, uPrevHighR, p.curveHigh);
+      } else {
+        wetLowL = coaldynamics::applyCurve(uLowL, p.curveLow);
+        wetLowR = coaldynamics::applyCurve(uLowR, p.curveLow);
+        wetMidL = coaldynamics::applyCurve(uMidL, p.curveMid);
+        wetMidR = coaldynamics::applyCurve(uMidR, p.curveMid);
+        wetHighL = coaldynamics::applyCurve(uHighL, p.curveHigh);
+        wetHighR = coaldynamics::applyCurve(uHighR, p.curveHigh);
+      }
 
       const float lowOutL =
           wetLowL * p.volLow * std::min(1.f, 1.f - p.panLow) * soloGain[0];

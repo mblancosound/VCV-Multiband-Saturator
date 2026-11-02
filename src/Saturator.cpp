@@ -164,6 +164,7 @@ void Saturator::applyOversampling(int factor) {
   highFilterR.reset();
 
   updateFilterFrequencies();
+  resetAdaaState();   // historial en voltios no vale tras cambiar fsN
 }
 
 /** Llamado desde UI o JSON: valida 0 (LEGACY) / 1 (LR4). Igual que
@@ -197,6 +198,42 @@ void Saturator::applyCrossover(int mode) {
   highFilter2R.reset();
 
   updateFilterFrequencies();
+  resetAdaaState();
+}
+
+/** Llamado desde UI o desde el JSON: solo registra la peticion para que el
+hilo de audio la aplique al principio de un bloque. */
+void Saturator::setAdaa(int on) {
+  const int v = (on != 0) ? 1 : 0;
+  if (v == adaa) {
+    // Cancela una peticion pendiente obsoleta: pedir el valor aplicado deja
+    // el estado determinista aunque dataFromJson haya dejado pending=1.
+    pendingAdaa.store(-1, std::memory_order_relaxed);
+    return;
+  }
+  pendingAdaa.store(v, std::memory_order_relaxed);
+}
+
+/** Llamado desde el hilo de audio: fija el modo y limpia el historial. */
+void Saturator::applyAdaa(int on) {
+  adaa = (on != 0) ? 1 : 0;
+  resetAdaaState();
+}
+
+void Saturator::resetAdaaState() {
+  uPrevLowL = uPrevLowR = 0.f;
+  uPrevMidL = uPrevMidR = 0.f;
+  uPrevHighL = uPrevHighR = 0.f;
+  adaaResync[0] = adaaResync[1] = adaaResync[2] = true;
+  adaaCurveApplied[0] = adaaCurveApplied[1] = adaaCurveApplied[2] = -1;
+}
+
+void Saturator::onReset() {
+  applyOversampling(oversampling);   // stage + dry + filtros + historial ADAA
+  dcX1L = 0.f;
+  dcX1R = 0.f;
+  dcY1L = 0.f;
+  dcY1R = 0.f;
 }
 
 /** Llamado desde UI o JSON: valida banda (0..2) e id (0..CURVE_COUNT-1).
@@ -244,6 +281,8 @@ json_t *Saturator::dataToJson() {
   // Modo de crossover (v2.6.0). Siempre se escribe; la lectura es estricta.
   json_object_set_new(rootJ, "crossover",
                       json_string(crossover == 1 ? "lr4" : "legacy"));
+  // ADAA (v2.6.0). Siempre se escribe; la lectura es estricta (json_is_true).
+  json_object_set_new(rootJ, "adaa", json_boolean(adaa));
 
   json_t *curvesJ = json_array();
   for (int i = 0; i < 3; i++)
@@ -276,6 +315,11 @@ void Saturator::dataFromJson(json_t *rootJ) {
       std::string(json_string_value(crossJ)) == "lr4")
     crossMode = 1;
   setCrossover(crossMode);
+  // "adaa": SOLO el booleano JSON true activa ADAA (json_is_true). Ausente,
+  // false, 1, "true" (string) o cualquier otro valor -> off (default v2.5.0).
+  // Sin historial: cargar un patch no es una accion de usuario (regla v2.4.0).
+  json_t *adaaJ = json_object_get(rootJ, "adaa");
+  setAdaa((adaaJ && json_is_true(adaaJ)) ? 1 : 0);
   // Sin "curves" -> TANH en las tres bandas. Valor no entero o array corto
   // -> TANH en esa banda. Numero fuera de rango -> clamp 0..CURVE_COUNT-1.
   json_t *curvesJ = json_object_get(rootJ, "curves");
@@ -336,6 +380,8 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
 
   stage.upsample(inL, inR, highL, highR);
 
+  const int adaaOn = adaa;   // lectura unica por bloque
+
   for (int i = 0; i < N; i++) {
     float xL = highL[i];
     float xR = highR[i];
@@ -360,20 +406,54 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
       upperR = highFilterR.process(xR);
     }
 
-    float wetLowL = coaldynamics::applyCurve(
-        coaldynamics::curveDrive(lowL, p.driveLow, p.curveLow), p.curveLow);
-    float wetLowR = coaldynamics::applyCurve(
-        coaldynamics::curveDrive(lowR, p.driveLow, p.curveLow), p.curveLow);
-    float wetMidL = coaldynamics::applyCurve(
-        coaldynamics::curveDrive(midL, p.driveMid, p.curveMid), p.curveMid);
-    float wetMidR = coaldynamics::applyCurve(
-        coaldynamics::curveDrive(midR, p.driveMid, p.curveMid), p.curveMid);
-    float wetUpperL = coaldynamics::applyCurve(
-        coaldynamics::curveDrive(upperL, p.driveHigh, p.curveHigh),
-        p.curveHigh);
-    float wetUpperR = coaldynamics::applyCurve(
-        coaldynamics::curveDrive(upperR, p.driveHigh, p.curveHigh),
-        p.curveHigh);
+    const float uLowL = coaldynamics::curveDrive(lowL, p.driveLow, p.curveLow);
+    const float uLowR = coaldynamics::curveDrive(lowR, p.driveLow, p.curveLow);
+    const float uMidL = coaldynamics::curveDrive(midL, p.driveMid, p.curveMid);
+    const float uMidR = coaldynamics::curveDrive(midR, p.driveMid, p.curveMid);
+    const float uHighL =
+        coaldynamics::curveDrive(upperL, p.driveHigh, p.curveHigh);
+    const float uHighR =
+        coaldynamics::curveDrive(upperR, p.driveHigh, p.curveHigh);
+
+    // Resync: uPrev = u en la PRIMERA submuestra del bloque, por banda y canal.
+    // Tras el resync, applyCurveAdaa ve du = 0 -> fallback -> f(u).
+    if (adaaOn && i == 0) {
+      if (adaaResync[0]) {
+        uPrevLowL = uLowL;
+        uPrevLowR = uLowR;
+        adaaResync[0] = false;
+      }
+      if (adaaResync[1]) {
+        uPrevMidL = uMidL;
+        uPrevMidR = uMidR;
+        adaaResync[1] = false;
+      }
+      if (adaaResync[2]) {
+        uPrevHighL = uHighL;
+        uPrevHighR = uHighR;
+        adaaResync[2] = false;
+      }
+    }
+
+    float wetLowL, wetLowR, wetMidL, wetMidR, wetUpperL, wetUpperR;
+    if (adaaOn) {
+      wetLowL = coaldynamics::applyCurveAdaa(uLowL, uPrevLowL, p.curveLow);
+      wetLowR = coaldynamics::applyCurveAdaa(uLowR, uPrevLowR, p.curveLow);
+      wetMidL = coaldynamics::applyCurveAdaa(uMidL, uPrevMidL, p.curveMid);
+      wetMidR = coaldynamics::applyCurveAdaa(uMidR, uPrevMidR, p.curveMid);
+      wetUpperL =
+          coaldynamics::applyCurveAdaa(uHighL, uPrevHighL, p.curveHigh);
+      wetUpperR =
+          coaldynamics::applyCurveAdaa(uHighR, uPrevHighR, p.curveHigh);
+    } else {
+      // Ruta v2.5.0 exacta.
+      wetLowL = coaldynamics::applyCurve(uLowL, p.curveLow);
+      wetLowR = coaldynamics::applyCurve(uLowR, p.curveLow);
+      wetMidL = coaldynamics::applyCurve(uMidL, p.curveMid);
+      wetMidR = coaldynamics::applyCurve(uMidR, p.curveMid);
+      wetUpperL = coaldynamics::applyCurve(uHighL, p.curveHigh);
+      wetUpperR = coaldynamics::applyCurve(uHighR, p.curveHigh);
+    }
 
     // Ley de pan: balance lineal con corte total (G_L=min(1,1-p),
     // G_R=min(1,1+p)); nunca gana >1
@@ -428,6 +508,12 @@ void Saturator::process(const ProcessArgs &args) {
       pendingCrossover.exchange(-1, std::memory_order_relaxed);
   if (requestedCrossover != -1)
     applyCrossover(requestedCrossover);
+
+  // ADAA (v2.6.0): mismo patron pending + exchange que oversampling/crossover.
+  const int requestedAdaa =
+      pendingAdaa.exchange(-1, std::memory_order_relaxed);
+  if (requestedAdaa != -1)
+    applyAdaa(requestedAdaa);
   float inL = inputs[IN_L].getVoltage();
   float inR = inputs[IN_R].isConnected() ? inputs[IN_R].getVoltage() : inL;
 
@@ -438,6 +524,20 @@ void Saturator::process(const ProcessArgs &args) {
   p.curveLow = curves[0].load(std::memory_order_relaxed);
   p.curveMid = curves[1].load(std::memory_order_relaxed);
   p.curveHigh = curves[2].load(std::memory_order_relaxed);
+
+  // Cambio de curva aplicada con ADAA: resync de uPrev en la submuestra 0.
+  if (p.curveLow != adaaCurveApplied[0]) {
+    adaaCurveApplied[0] = p.curveLow;
+    adaaResync[0] = true;
+  }
+  if (p.curveMid != adaaCurveApplied[1]) {
+    adaaCurveApplied[1] = p.curveMid;
+    adaaResync[1] = true;
+  }
+  if (p.curveHigh != adaaCurveApplied[2]) {
+    adaaCurveApplied[2] = p.curveHigh;
+    adaaResync[2] = true;
+  }
 
   // Rampa de solo/dry ~5 ms: objetivo segun `solo`, un paso lineal por muestra
   // base (240 pasos a 48 kHz: step = sampleTime * 200). Se calcula UNA vez por
