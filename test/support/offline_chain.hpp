@@ -5,6 +5,7 @@
 
 #include <dsp/filter.hpp>
 
+#include "../../src/AutoMakeup.hpp"
 #include "../../src/Curves.hpp"
 #include "oversample_local.hpp"
 
@@ -25,6 +26,10 @@ struct ChainParams {
   int lr4;
   /** 0 = ADAA off (v2.5.0), 1 = ADAA1 on (v2.6.0). */
   int adaa;
+  /** Makeup manual por banda (G2). 1.0 = 0 dB. */
+  float makeupLow, makeupMid, makeupHigh;
+  /** 0 = auto-makeup off (v2.6.0), 1 = on (G2). */
+  int autoMakeup;
 
   ChainParams()
       : driveLow(1.f), driveMid(1.f), driveHigh(1.f),
@@ -32,7 +37,8 @@ struct ChainParams {
         curveHigh(coaldynamics::TANH),
         panLow(0.f), panMid(0.f), panHigh(0.f),
         volLow(1.f), volMid(1.f), volHigh(1.f),
-        soloBand(-1), mix(1.f), outVol(1.f), lr4(0), adaa(0) {}
+        soloBand(-1), mix(1.f), outVol(1.f), lr4(0), adaa(0),
+        makeupLow(1.f), makeupMid(1.f), makeupHigh(1.f), autoMakeup(0) {}
 };
 
 // Replica offline de Saturator::process(). Copia la topologia y los
@@ -73,6 +79,9 @@ struct OfflineChain {
   int adaaCurveApplied[3];
 
   ChainParams p;
+
+  /** Mismo objeto que usa el modulo (src/AutoMakeup.hpp), no una copia. */
+  coaldynamics::AutoMakeup autoMakeupDsp;
 
   OfflineChain() { configure(48000.f, 1); }
 
@@ -129,6 +138,9 @@ struct OfflineChain {
     uPrevHighL = uPrevHighR = 0.f;
     adaaResync[0] = adaaResync[1] = adaaResync[2] = true;
     adaaCurveApplied[0] = adaaCurveApplied[1] = adaaCurveApplied[2] = -1;
+
+    autoMakeupDsp.setSampleRate(fs);
+    autoMakeupDsp.reset();
   }
 
   template <class Stage>
@@ -142,6 +154,13 @@ struct OfflineChain {
 
     stage.upsample(inL, inR, upL, upR);
     const int adaaOn = p.adaa;
+
+    // Makeup resuelto una vez por muestra base, igual que OSParams en el
+    // modulo: auto manda; con auto off, knob manual (default 1.0).
+    float mk[3];
+    mk[0] = p.autoMakeup ? autoMakeupDsp.gain(0) : p.makeupLow;
+    mk[1] = p.autoMakeup ? autoMakeupDsp.gain(1) : p.makeupMid;
+    mk[2] = p.autoMakeup ? autoMakeupDsp.gain(2) : p.makeupHigh;
 
     for (int i = 0; i < N; ++i) {
       const float xL = upL[i];
@@ -211,21 +230,34 @@ struct OfflineChain {
         wetHighR = coaldynamics::applyCurve(uHighR, p.curveHigh);
       }
 
-      const float lowOutL =
-          wetLowL * p.volLow * std::min(1.f, 1.f - p.panLow) * soloGain[0];
-      const float lowOutR =
-          wetLowR * p.volLow * std::min(1.f, 1.f + p.panLow) * soloGain[0];
-      const float midOutL =
-          wetMidL * p.volMid * std::min(1.f, 1.f - p.panMid) * soloGain[1];
-      const float midOutR =
-          wetMidR * p.volMid * std::min(1.f, 1.f + p.panMid) * soloGain[1];
-      const float highOutL =
-          wetHighL * p.volHigh * std::min(1.f, 1.f - p.panHigh) * soloGain[2];
-      const float highOutR =
-          wetHighR * p.volHigh * std::min(1.f, 1.f + p.panHigh) * soloGain[2];
+      const float lowOutL = wetLowL * mk[0] * p.volLow *
+                            std::min(1.f, 1.f - p.panLow) * soloGain[0];
+      const float lowOutR = wetLowR * mk[0] * p.volLow *
+                            std::min(1.f, 1.f + p.panLow) * soloGain[0];
+      const float midOutL = wetMidL * mk[1] * p.volMid *
+                            std::min(1.f, 1.f - p.panMid) * soloGain[1];
+      const float midOutR = wetMidR * mk[1] * p.volMid *
+                            std::min(1.f, 1.f + p.panMid) * soloGain[1];
+      const float highOutL = wetHighL * mk[2] * p.volHigh *
+                             std::min(1.f, 1.f - p.panHigh) * soloGain[2];
+      const float highOutR = wetHighR * mk[2] * p.volHigh *
+                             std::min(1.f, 1.f + p.panHigh) * soloGain[2];
 
       wetL[i] = lowOutL + midOutL + highOutL;
       wetR[i] = lowOutR + midOutR + highOutR;
+
+      // Detector G2: una vez por muestra base, en la ultima submuestra.
+      if (i == N - 1) {
+        float dIn[3];
+        float dOut[3];
+        dIn[0] = 0.5f * (std::fabs(lowLf) + std::fabs(lowRf));
+        dIn[1] = 0.5f * (std::fabs(midLf) + std::fabs(midRf));
+        dIn[2] = 0.5f * (std::fabs(highLf) + std::fabs(highRf));
+        dOut[0] = 0.5f * (std::fabs(wetLowL) + std::fabs(wetLowR));
+        dOut[1] = 0.5f * (std::fabs(wetMidL) + std::fabs(wetMidR));
+        dOut[2] = 0.5f * (std::fabs(wetHighL) + std::fabs(wetHighR));
+        autoMakeupDsp.update(dIn, dOut);
+      }
     }
 
     outL = stage.downsampleL(wetL);

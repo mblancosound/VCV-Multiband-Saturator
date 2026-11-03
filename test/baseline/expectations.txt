@@ -19,3 +19,6 @@ T-ADAA-TANH | status=PASS
 T-ADAA-THD | status=PASS
 T-ADAA-CLEAN | status=PASS
 T-DRIVECV | status=PASS
+T-MAKEUP | status=PASS
+T-AUTOG | status=PASS
+T-AUTOG-STAB | status=PASS

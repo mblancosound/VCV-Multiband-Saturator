@@ -228,6 +228,29 @@ struct AdaaAction : history::ModuleAction {
   }
 };
 
+/** Toggle de auto-makeup (0 = off, 1 = on). Selector puro: el setter publica
+    el atomico y no hay peticion pendiente que cancelar. */
+struct AutoMakeupAction : history::ModuleAction {
+  int oldMode = 0;
+  int newMode = 0;
+
+  AutoMakeupAction() { name = "toggle auto makeup"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setAutoMakeup(oldMode);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setAutoMakeup(newMode);
+  }
+};
+
 // --- Helpers de los menus: aplicar + registrar (o no-op si no cambia) -------
 
 /** Escribe newCurve en las tres bandas y registra UNA sola entrada de
@@ -362,6 +385,20 @@ void pushAdaaHistory(Saturator *saturator, int mode) {
   APP->history->push(action);
 }
 
+void pushAutoMakeupHistory(Saturator *saturator, int mode) {
+  // Sin pendiente: el atomico es el estado efectivo en cuanto se escribe.
+  const int oldMode = saturator->autoMakeup.load(std::memory_order_relaxed);
+  if (oldMode == mode)
+    return;                      // NO-OP obligatorio: sin escritura ni history
+  saturator->setAutoMakeup(mode);
+
+  AutoMakeupAction *action = new AutoMakeupAction;
+  action->moduleId = saturator->id;
+  action->oldMode = oldMode;
+  action->newMode = mode;
+  APP->history->push(action);
+}
+
 } // namespace
 
 SaturatorWidget::SaturatorWidget(Saturator *module) {
@@ -403,6 +440,15 @@ SaturatorWidget::SaturatorWidget(Saturator *module) {
       createParamCentered<Knob20>(Vec(150, 147.4), module, Saturator::MID_VOL));
   addParam(createParamCentered<Knob20>(Vec(217.5, 147.4), module,
                                        Saturator::HIGH_VOL));
+
+  // Makeup por banda (G2): fila propia 7.6 px por debajo de los Vol, para no
+  // tocar los knobs de Pan (ver contrato v2.7 4.5). Sin cambios en el SVG.
+  addParam(createParamCentered<Knob20>(Vec(52.5, 155.0), module,
+                                       Saturator::LOW_MAKEUP));
+  addParam(createParamCentered<Knob20>(Vec(120, 155.0), module,
+                                       Saturator::MID_MAKEUP));
+  addParam(createParamCentered<Knob20>(Vec(187.5, 155.0), module,
+                                       Saturator::HIGH_MAKEUP));
 
   // Output & Mix (Knobs de 48px)
   addParam(createParamCentered<Knob48>(Vec(101.3, 201.3), module,
@@ -507,6 +553,13 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
       "ADAA", {"Off", "On"},
       [=]() { return (size_t) (saturator->adaa != 0 ? 1 : 0); },
       [=](size_t index) { pushAdaaHistory(saturator, (int) index); }));
+
+  // Auto-makeup (v2.7): On = makeup por banda calibrado por detector; Off =
+  // makeup manual (default 1.0 = 0 dB). Undoable.
+  menu->addChild(createIndexSubmenuItem(
+      "Auto Makeup", {"Off", "On"},
+      [=]() { return (size_t) (saturator->autoMakeup.load() != 0 ? 1 : 0); },
+      [=](size_t index) { pushAutoMakeupHistory(saturator, (int) index); }));
 
   menu->addChild(new ui::MenuSeparator);
 

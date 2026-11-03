@@ -6,6 +6,7 @@
 
 #include "Oversampling.hpp"
 #include "Curves.hpp"
+#include "AutoMakeup.hpp"
 
 using namespace rack;
 
@@ -56,6 +57,10 @@ struct Saturator : Module {
     LOW_DRIVE_CV,
     MID_DRIVE_CV,
     HIGH_DRIVE_CV,
+    /** Makeup manual por banda (G2). Ids 20..22; 1.0 = 0 dB. */
+    LOW_MAKEUP,
+    MID_MAKEUP,
+    HIGH_MAKEUP,
     NUM_PARAMS
   };
   enum InputIds {
@@ -84,6 +89,8 @@ struct Saturator : Module {
     /** Ganancia de solo con rampa (0..1) de cada banda, resuelta por muestra base. */
     float soloGainLow, soloGainMid, soloGainHigh;
     int curveLow, curveMid, curveHigh;
+    /** Makeup resuelto por banda para esta muestra base (G2): auto o manual. */
+    float makeupLow, makeupMid, makeupHigh;
   };
 
   dsp::ClockDivider lightDivider;
@@ -112,6 +119,16 @@ struct Saturator : Module {
   /** Peticion pendiente de toggle (-1 = ninguna). La escriben la UI y el JSON;
       la consume el hilo de audio con exchange(). */
   std::atomic<int> pendingAdaa{-1};
+
+  /** Auto-makeup (G2): 0 = Off (default, comportamiento v2.6.0), 1 = On.
+      Selector puro: la UI/JSON lo escriben, el audio lo lee una vez por
+      muestra base con memory_order_relaxed. No hay pending ni exchange porque
+      alternarlo no reconstruye coeficientes ni resetea estado (los detectores
+      corren siempre). */
+  std::atomic<int> autoMakeup{0};
+  /** Detector + suavizado por banda. Corre siempre (auto on u off) para que
+      activar el modo no necesite primado. Solo hilo de audio. */
+  coaldynamics::AutoMakeup autoMakeupDsp;
 
   /** Historial ADAA1: u_prev[banda][canal], con banda 0 = Low, 1 = Mid,
       2 = High. Solo hilo de audio. Solo se actualiza con curvas que
@@ -203,6 +220,9 @@ struct Saturator : Module {
   /** Hilo de audio: uPrev = 0 en los 6 historiales + resync de las 3 bandas
       + adaaCurveApplied = -1. Sin allocs, sin ramas por muestra. */
   void resetAdaaState();
+
+  /** Llamado desde UI o JSON: valida 0/1 y publica el selector. */
+  void setAutoMakeup(int on);
 
   void onReset() override;
 

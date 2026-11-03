@@ -168,23 +168,30 @@ void configureCurves(cdt::OfflineChain &ch, int curve, float drive) {
   ch.p.driveHigh = drive;
 }
 
-void runSine(cdt::OfflineChain &ch, double freq, int n, std::vector<float> &in,
-             std::vector<float> &out) {
+/** Seno de amplitud `amp` (pico, voltios). La generacion sigue en double y se
+    convierte a float al inyectar (enmienda H3). */
+void runSineAmp(cdt::OfflineChain &ch, double freq, int n, double amp,
+                std::vector<float> &in, std::vector<float> &out) {
   in.assign(n, 0.f);
   out.assign(n, 0.f);
   for (int i = 0; i < n; ++i) {
     // Generacion en double y conversion a float al inyectar (enmienda H3):
     // el ruido de cuantizacion de fase dependia de los flags de compilacion.
     const float x = static_cast<float>(
-        static_cast<double>(VPK) *
-        std::sin(6.283185307179586 * freq * static_cast<double>(i) /
-                 static_cast<double>(FS)));
+        amp * std::sin(6.283185307179586 * freq * static_cast<double>(i) /
+                       static_cast<double>(FS)));
     in[i] = x;
     float oL = 0.f;
     float oR = 0.f;
     ch.process(x, x, oL, oR);
     out[i] = oL;
   }
+}
+
+/** Envoltorio historico: Vpk = 5 V (identico bit a bit a v2.6.0). */
+void runSine(cdt::OfflineChain &ch, double freq, int n, std::vector<float> &in,
+             std::vector<float> &out) {
+  runSineAmp(ch, freq, n, static_cast<double>(VPK), in, out);
 }
 
 // ---------------- T-RECON ----------------
@@ -477,6 +484,102 @@ Outcome caseDriveCv() {
   return o;
 }
 
+// ---------------- G2: makeup manual / automatico ----------------
+struct AutoGainResult {
+  double worstDev;   // peor |20log10(rms(out)/rms(in))|, dB
+  double worstPp;    // peor (max-min) del RMS por ventanas de 10 ms, dB
+};
+
+/** AC4 sobre 9 curvas x n = 1/4 (18 medidas de 2 s). Sin allocation en el
+    camino de audio; el arnes puede usar std::vector. */
+AutoGainResult measureAutoGain(void) {
+  AutoGainResult r = {0.0, 0.0};
+  for (int c = 0; c < coaldynamics::CURVE_COUNT; ++c) {
+    for (int k = 0; k < 2; ++k) {
+      const int n = (k == 0) ? 1 : 4;
+      cdt::OfflineChain ch;
+      ch.p.lr4 = 1;                 // obligatorio (5.3)
+      ch.p.autoMakeup = 1;
+      ch.configure(FS, n);
+      configureCurves(ch, c, 11.f); // drive 1.0 -> 1 + 10*1
+      ch.p.volLow = ch.p.volMid = ch.p.volHigh = 1.f;
+      ch.p.mix = 1.f;
+      ch.p.outVol = 1.f;
+
+      std::vector<float> in, out;
+      runSineAmp(ch, 1000.0, 2 * static_cast<int>(FS), 0.1, in, out);
+
+      const std::size_t from = static_cast<std::size_t>(0.2 * FS);  // 200 ms
+      const double dev = cdt::db20(cdt::rms(tailFrom(out, from)) /
+                                   cdt::rms(tailFrom(in, from)));
+      if (std::fabs(dev) > r.worstDev)
+        r.worstDev = std::fabs(dev);
+
+      // p-p: RMS por ventanas de 10 ms (480 muestras = 10 periodos de 1 kHz).
+      double lo = 1e9;
+      double hi = -1e9;
+      for (std::size_t i = from; i + 480 <= out.size(); i += 480) {
+        double acc = 0.0;
+        for (std::size_t j = 0; j < 480; ++j) {
+          const double v = static_cast<double>(out[i + j]);
+          acc += v * v;
+        }
+        const double d = cdt::db20(std::sqrt(acc / 480.0));
+        if (d < lo) lo = d;
+        if (d > hi) hi = d;
+      }
+      if (hi - lo > r.worstPp)
+        r.worstPp = hi - lo;
+    }
+  }
+  return r;
+}
+
+/** Criterio G2 (makeup manual): TANH, drive 11, seno 1 kHz Vpk 5, mix 1.
+    mk = 2.0 debe ser exactamente 2x mk = 1.0 (multiplicacion lineal, post
+    curva) y mk = 0.0 debe dar silencio exacto. */
+Outcome caseMakeup() {
+  cdt::OfflineChain ch[3];
+  std::vector<float> in[3], out[3];
+  static const float MK[3] = {1.f, 2.f, 0.f};
+  for (int s = 0; s < 3; ++s) {
+    ch[s].configure(FS, 1);
+    configureCurves(ch[s], coaldynamics::TANH, 11.f);
+    ch[s].p.makeupLow = ch[s].p.makeupMid = ch[s].p.makeupHigh = MK[s];
+    ch[s].p.mix = 1.f;
+    ch[s].p.outVol = 1.f;
+    runSine(ch[s], 1000.0, 48000, in[s], out[s]);
+  }
+
+  double worst = 0.0;
+  double zero = 0.0;
+  for (std::size_t i = 0; i < out[0].size(); ++i) {
+    const double d = std::fabs(static_cast<double>(out[1][i]) -
+                               2.0 * static_cast<double>(out[0][i]));
+    if (d > worst) worst = d;
+    const double z = std::fabs(static_cast<double>(out[2][i]));
+    if (z > zero) zero = z;
+  }
+  Outcome o = {"T-MAKEUP", "makeup", worst, 1e-6, "unidades",
+               worst <= 1e-6 && zero == 0.0};
+  return o;
+}
+
+/** AC4, criterio de nivel: peor |G_out - G_in| en 9 curvas x n = 1/4. */
+Outcome caseAutoGain() {
+  const AutoGainResult r = measureAutoGain();
+  Outcome o = {"T-AUTOG", "delta", r.worstDev, 1.0, "dB", r.worstDev <= 1.0};
+  return o;
+}
+
+/** AC4, criterio de estabilidad: peor p-p del nivel tras 200 ms. */
+Outcome caseAutoGainStab() {
+  const AutoGainResult r = measureAutoGain();
+  Outcome o = {"T-AUTOG-STAB", "p-p", r.worstPp, 0.5, "dB",
+               r.worstPp <= 0.5};
+  return o;
+}
+
 // ---------------- T-DC ----------------
 Outcome caseDc() {
   static const int CV[2] = {coaldynamics::TUBE, coaldynamics::DIODE};
@@ -629,14 +732,15 @@ int main(int argc, char **argv) {
   }
   const std::vector<Expect> ex = loadExpectations(EXP);
 
-  const Outcome all[13] = {
+  const Outcome all[16] = {
       caseRecon(),       caseLat(),      caseTrim(),
       caseAlias(),       caseDc(),       caseNan(),
       caseMix(),         caseAdaaAlias("T-ADAA-FOLD", coaldynamics::FOLDBACK,
                                        -14.2),
       caseAdaaAlias("T-ADAA-SINE", coaldynamics::SINEFOLD, -12.4),
       caseAdaaAlias("T-ADAA-TANH", coaldynamics::TANH, -31.9),
-      caseAdaaThd(),     caseAdaaClean(), caseDriveCv()};
+      caseAdaaThd(),     caseAdaaClean(), caseDriveCv(),
+      caseMakeup(),      caseAutoGain(),  caseAutoGainStab()};
 
   int casos = 0;
   int p = 0;
@@ -644,7 +748,7 @@ int main(int argc, char **argv) {
   int f = 0;
   int exitCode = 0;
 
-  for (int i = 0; i < 13; ++i) {
+  for (int i = 0; i < 16; ++i) {
     const Outcome &o = all[i];
     if (!only.empty() && only != o.id) continue;
     ++casos;

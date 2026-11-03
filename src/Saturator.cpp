@@ -33,6 +33,11 @@ Saturator::Saturator() {
   configParam(MID_DRIVE_CV, -1.f, 1.f, 0.f, "Mid Drive CV", "%", 0.f, 100.f);
   configParam(HIGH_DRIVE_CV, -1.f, 1.f, 0.f, "High Drive CV", "%", 0.f, 100.f);
 
+  // Makeup manual por banda (G2): 1.0 = 100 % = 0 dB; 4.0 = 400 % = +12.04 dB.
+  configParam(LOW_MAKEUP, 0.f, 4.f, 1.f, "Low Makeup", "%", 0.f, 100.f);
+  configParam(MID_MAKEUP, 0.f, 4.f, 1.f, "Mid Makeup", "%", 0.f, 100.f);
+  configParam(HIGH_MAKEUP, 0.f, 4.f, 1.f, "High Makeup", "%", 0.f, 100.f);
+
   getParamQuantity(LOW_DRIVE)->randomizeEnabled = false;
   getParamQuantity(LOW_PAN)->randomizeEnabled = false;
   getParamQuantity(LOW_VOL)->randomizeEnabled = false;
@@ -53,6 +58,9 @@ Saturator::Saturator() {
   getParamQuantity(LOW_DRIVE_CV)->randomizeEnabled = false;
   getParamQuantity(MID_DRIVE_CV)->randomizeEnabled = false;
   getParamQuantity(HIGH_DRIVE_CV)->randomizeEnabled = false;
+  getParamQuantity(LOW_MAKEUP)->randomizeEnabled = false;
+  getParamQuantity(MID_MAKEUP)->randomizeEnabled = false;
+  getParamQuantity(HIGH_MAKEUP)->randomizeEnabled = false;
 
   configInput(IN_L, "Left input");
   configInput(IN_R, "Right input");
@@ -81,6 +89,10 @@ Saturator::Saturator() {
 
   const float twoPi = 6.283185307179586f;
   dcR = std::exp(-twoPi * 15.f / sampleRate);
+
+  // G2: coeficientes del detector a la fs base. onSampleRateChange() los
+  // reajusta al entrar en el engine, igual que dcR y los biquads.
+  autoMakeupDsp.setSampleRate(sampleRate);
 }
 
 /** Disena los crossovers a sampleRate * oversampling. Unico punto que toca
@@ -242,6 +254,7 @@ void Saturator::onReset() {
   dcX1R = 0.f;
   dcY1L = 0.f;
   dcY1R = 0.f;
+  autoMakeupDsp.reset();             // envelopes a 0, gainS a 1 (G2)
 }
 
 /** Llamado desde UI o JSON: valida banda (0..2) e id (0..CURVE_COUNT-1).
@@ -263,6 +276,12 @@ void Saturator::setSolo(int band) {
   solo.store(band, std::memory_order_relaxed);
 }
 
+/** Llamado desde UI o JSON. Selector puro: no hay peticion pendiente porque
+alternar el modo no reconstruye coeficientes ni resetea estado. */
+void Saturator::setAutoMakeup(int on) {
+  autoMakeup.store((on != 0) ? 1 : 0, std::memory_order_relaxed);
+}
+
 void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
   sampleRate = e.sampleRate;
 
@@ -279,6 +298,10 @@ void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
   }
   dryIndex = 0;
 
+  // G2: solo coeficientes. NO reset(): envIn/envOut/gainS son amplitudes y
+  // siguen siendo validas tras cambiar de sample rate.
+  autoMakeupDsp.setSampleRate(e.sampleRate);
+
   updateFilterFrequencies();
 }
 
@@ -291,6 +314,9 @@ json_t *Saturator::dataToJson() {
                       json_string(crossover == 1 ? "lr4" : "legacy"));
   // ADAA (v2.6.0). Siempre se escribe; la lectura es estricta (json_is_true).
   json_object_set_new(rootJ, "adaa", json_boolean(adaa));
+  // Auto-makeup (v2.7). Siempre se escribe; la lectura es estricta.
+  json_object_set_new(rootJ, "autoMakeup",
+                      json_boolean(autoMakeup.load() != 0));
 
   json_t *curvesJ = json_array();
   for (int i = 0; i < 3; i++)
@@ -328,6 +354,11 @@ void Saturator::dataFromJson(json_t *rootJ) {
   // Sin historial: cargar un patch no es una accion de usuario (regla v2.4.0).
   json_t *adaaJ = json_object_get(rootJ, "adaa");
   setAdaa((adaaJ && json_is_true(adaaJ)) ? 1 : 0);
+  // "autoMakeup": SOLO el booleano JSON true lo activa (json_is_true). Ausente,
+  // false, 1 o "true" (string) -> off (default v2.6.0). Sin historial: cargar
+  // un patch no es una accion de usuario (regla v2.4.0).
+  json_t *makeupJ = json_object_get(rootJ, "autoMakeup");
+  setAutoMakeup((makeupJ && json_is_true(makeupJ)) ? 1 : 0);
   // Sin "curves" -> TANH en las tres bandas. Valor no entero o array corto
   // -> TANH en esa banda. Numero fuera de rango -> clamp 0..CURVE_COUNT-1.
   json_t *curvesJ = json_object_get(rootJ, "curves");
@@ -460,19 +491,19 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
 
     // Ley de pan: balance lineal con corte total (G_L=min(1,1-p),
     // G_R=min(1,1+p)); nunca gana >1
-    float lowOutL =
-        wet[0][0] * p.volLow * std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
-    float lowOutR =
-        wet[0][1] * p.volLow * std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
+    float lowOutL = wet[0][0] * p.makeupLow * p.volLow *
+                    std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
+    float lowOutR = wet[0][1] * p.makeupLow * p.volLow *
+                    std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
 
-    float midOutL =
-        wet[1][0] * p.volMid * std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
-    float midOutR =
-        wet[1][1] * p.volMid * std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
+    float midOutL = wet[1][0] * p.makeupMid * p.volMid *
+                    std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
+    float midOutR = wet[1][1] * p.makeupMid * p.volMid *
+                    std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
 
-    float upperOutL = wet[2][0] * p.volHigh *
+    float upperOutL = wet[2][0] * p.makeupHigh * p.volHigh *
                       std::min(1.f, 1.f - p.panHigh) * p.soloGainHigh;
-    float upperOutR = wet[2][1] * p.volHigh *
+    float upperOutR = wet[2][1] * p.makeupHigh * p.volHigh *
                       std::min(1.f, 1.f + p.panHigh) * p.soloGainHigh;
 
     wetL[i] = lowOutL + midOutL + upperOutL;
@@ -484,6 +515,19 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
       satLowMeter = std::min(std::abs(wet[0][0] - u[0][0]), 1.f);
       satMidMeter = std::min(std::abs(wet[1][0] - u[1][0]), 1.f);
       satHighMeter = std::min(std::abs(wet[2][0] - u[2][0]), 1.f);
+
+      // Auto-makeup (G2): UN detector por banda y muestra base. dIn = banda
+      // post-crossover PRE-curveDrive (lowL/midL/upperL, no u); dOut =
+      // post-curva post-TRIM (wet, antes de vol/pan/solo). Corre siempre,
+      // este el modo activado o no.
+      float dIn[3];
+      float dOut[3];
+      dIn[0] = 0.5f * (std::abs(lowL) + std::abs(lowR));
+      dIn[1] = 0.5f * (std::abs(midL) + std::abs(midR));
+      dIn[2] = 0.5f * (std::abs(upperL) + std::abs(upperR));
+      for (int b = 0; b < 3; b++)
+        dOut[b] = 0.5f * (std::abs(wet[b][0]) + std::abs(wet[b][1]));
+      autoMakeupDsp.update(dIn, dOut);
     }
   }
 
@@ -563,6 +607,14 @@ void Saturator::process(const ProcessArgs &args) {
   p.soloGainLow = soloGain[0];
   p.soloGainMid = soloGain[1];
   p.soloGainHigh = soloGain[2];
+
+  // Makeup por banda (G2): auto manda; con auto Off se usa el knob manual
+  // (default 1.0 = 0 dB = identidad). Una lectura relaxed por muestra base.
+  const bool autoOn = autoMakeup.load(std::memory_order_relaxed) != 0;
+  p.makeupLow = autoOn ? autoMakeupDsp.gain(0) : params[LOW_MAKEUP].getValue();
+  p.makeupMid = autoOn ? autoMakeupDsp.gain(1) : params[MID_MAKEUP].getValue();
+  p.makeupHigh =
+      autoOn ? autoMakeupDsp.gain(2) : params[HIGH_MAKEUP].getValue();
 
   p.panLow = clamp(params[LOW_PAN].getValue() +
                        (inputs[LOW_PAN_INPUT].getVoltage() / 10.f) *

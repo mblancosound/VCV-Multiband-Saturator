@@ -13,7 +13,7 @@ RELEASE_FLAGS := -O3 -funsafe-math-optimizations
 STRICT_FLAGS := -O2 -fno-fast-math -ffp-contract=off
 
 DEPS := harness.cpp support/metrics.hpp support/offline_chain.hpp \
-        support/oversample_local.hpp ../src/Curves.hpp
+        support/oversample_local.hpp ../src/Curves.hpp ../src/AutoMakeup.hpp
 
 .PHONY: test test-strict freeze clean
 
