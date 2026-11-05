@@ -93,7 +93,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Rack SDK
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/rack-sdk.zip" "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-mac-x64+arm64.zip"
+          curl -fsSL -o "$RUNNER_TEMP/rack-sdk.zip" "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-mac-${{ matrix.arch }}.zip"
           unzip -q "$RUNNER_TEMP/rack-sdk.zip" -d "$RUNNER_TEMP"
           echo "RACK_DIR=$RUNNER_TEMP/Rack-SDK" >> "$GITHUB_ENV"
       - name: Build

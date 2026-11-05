@@ -21,8 +21,12 @@
 // fopen_s basta y evita <windows.h> (que arrastraria las macros min/max).
 // ---------------------------------------------------------------------------
 extern "C" FILE *fopen_u8(const char *filename, const char *mode) {
+#ifdef _WIN32
   FILE *f = NULL;
   return (fopen_s(&f, filename, mode) == 0) ? f : NULL;
+#else
+  return fopen(filename, mode);
+#endif
 }
 
 namespace {
