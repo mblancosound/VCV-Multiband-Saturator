@@ -1,0 +1,126 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  RACK_SDK_VERSION: "2.6.6"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    name: Validate manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate plugin.json
+        run: |
+          set -euo pipefail
+          jq -e . plugin.json > /dev/null
+          SLUG="$(jq -r '.slug' plugin.json)"
+          VERSION="$(jq -r '.version' plugin.json)"
+          echo "slug=$SLUG version=$VERSION"
+          [[ "$SLUG" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::slug invalido: $SLUG"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version invalida: $VERSION"; exit 1; }
+          jq -e '.modules | length > 0 and all(.[]; (.slug | type == "string") and (.name | type == "string") and (.description | type == "string") and ((.tags | length) > 0))' plugin.json > /dev/null
+          for f in LICENSE.txt README.md Makefile; do
+            test -f "$f" || { echo "::error::falta $f"; exit 1; }
+          done
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/v}"
+            [[ "$TAG" == "$VERSION" ]] || { echo "::error::tag v$TAG != plugin.json $VERSION"; exit 1; }
+          fi
+
+  test:
+    name: Offline harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rack SDK
+        run: |
+          curl -fsSL -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-lin-x64.zip"
+          unzip -q rack-sdk.zip
+      - name: Run harness (release and strict FP)
+        env:
+          RACK_DIR: ${{ github.workspace }}/Rack-SDK
+        run: |
+          make -C test test
+          make -C test test-strict
+
+  build-win-linux:
+    name: Build ${{ matrix.platform }}
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/qno/rack-plugin-toolchain-win-linux
+      options: --user root
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [win-x64, lin-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          export PLUGIN_DIR="$GITHUB_WORKSPACE"
+          cd /home/build/rack-plugin-toolchain
+          make plugin-build-${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: /home/build/rack-plugin-toolchain/plugin-build/*.vcvplugin
+          if-no-files-found: error
+
+  build-mac:
+    name: Build mac-${{ matrix.arch }}
+    needs: validate
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rack SDK
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/rack-sdk.zip" "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-mac-x64+arm64.zip"
+          unzip -q "$RUNNER_TEMP/rack-sdk.zip" -d "$RUNNER_TEMP"
+          echo "RACK_DIR=$RUNNER_TEMP/Rack-SDK" >> "$GITHUB_ENV"
+      - name: Build
+        env:
+          CROSS_COMPILE: ${{ matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'arm64-apple-darwin' }}
+        run: make -j4 dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.arch }}
+          path: dist/*.vcvplugin
+          if-no-files-found: error
+
+  publish:
+    name: Publish release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build-win-linux, build-mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Upload vcvplugin to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+          gh release upload "$TAG" artifacts/*.vcvplugin --repo "$GITHUB_REPOSITORY" --clobber
