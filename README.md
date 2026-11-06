@@ -1,5 +1,9 @@
 # VCV-Multiband-Saturator
 
+[![Build](https://github.com/mblancosound/VCV-Multiband-Saturator/actions/workflows/build.yml/badge.svg)](https://github.com/mblancosound/VCV-Multiband-Saturator/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/mblancosound/VCV-Multiband-Saturator)](https://github.com/mblancosound/VCV-Multiband-Saturator/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
+
 Multiband Saturator plugin for [VCV Rack 2](https://vcvrack.com/) by **Coal Dynamics** (Manuel Blanco).
 
 Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, CV inputs, and stereo in/out.
@@ -142,30 +146,26 @@ using Rack's standard history (e.g. *Undo change curve*, *Undo change curves*, *
 curves*). Re-selecting an already active option creates no history entry, and loading a patch is never
 recorded as an undoable action.
 
-## Requirements
+## Install
 
-- VCV Rack SDK 2.6.6 en `C:\Rack-SDK2.6.6` (ver `Makefile`: `RACK_DIR ?= /c/Rack-SDK2.6.6`)
-- MSYS2 + `jq` (Mingw64: `pacman -S mingw-w64-x86_64-jq`; el `Makefile` añade `/mingw64/bin` al `PATH` y falla con mensaje claro si falta `jq`)
-- Toolchain compatible con Rack plugin development (GCC/Make on Linux, MSYS2/MinGW on Windows, Xcode/Clang on macOS)
+Download the `.vcvplugin` for your platform from
+[Releases](https://github.com/mblancosound/VCV-Multiband-Saturator/releases/latest) — `win-x64`,
+`lin-x64`, `mac-x64`, `mac-arm64` — and install it from Rack via **Help > Install plugin file...**.
+Restart Rack afterwards.
 
 ## Build
 
-```bash
-make        # builds ./plugin.dll (repo root)
-make dist   # crea el .vcvplugin en dist/
-```
-
-Timings medidos (Windows + MSYS2): limpio 7.2s, 1 fich 2.7s, no-op 0.9s, `make dist` 1.6s.
+Requirements: VCV Rack SDK 2.6.6 (`RACK_DIR`), `jq`, and a native toolchain (GCC on Linux, MSYS2/MinGW on
+Windows, Xcode/Clang on macOS). CI builds the four platforms with these same commands.
 
 ```bash
-# Point RACK_DIR to your local Rack SDK if different
-export RACK_DIR=/path/to/Rack-SDK2.6.6
-
-make
-make dist
+export RACK_DIR=/path/to/Rack-SDK-2.6.6   # Makefile default: /c/Rack-SDK2.6.6
+make        # ./plugin.dll (or .so / .dylib)
+make dist   # dist/Coal_Dynamics-<version>-<platform>.vcvplugin
+make test   # offline DSP harness (12 cases; run it from the repo root)
 ```
 
-The distributable `.vcvplugin` will be created under `dist/`.
+Windows + MSYS2 timings: clean 7.2 s, one file 2.7 s, no-op 0.9 s, `make dist` 1.6 s.
 
 ## Project structure
 
@@ -181,12 +181,6 @@ src/
 res/               # panel + component SVGs
 LICENSE.txt
 ```
-
-## Install (from source)
-
-1. `make dist`
-2. Copy `dist/Coal_Dynamics-2.6.0-win-x64.vcvplugin` (name varies by platform) into your Rack `plugins/` folder, or install it from Rack via `Help > Install plugin file...`.
-3. Restart Rack.
 
 ## License
 
