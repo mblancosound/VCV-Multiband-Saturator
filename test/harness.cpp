@@ -584,6 +584,185 @@ Outcome caseAutoGainStab() {
   return o;
 }
 
+// ---------------- G3: bypass ----------------
+
+/** T-BYPASS: con bypass ON la salida es EXACTAMENTE in * outVol, a 1x y a 4x.
+    Se compara muestra a muestra contra `in * outVol` calculado en float con el
+    mismo outVol (operacion identica, sin redondeo intermedio). Punto de
+    operacion saturado (TANH, drive 11, 5 V de pico) a proposito: si el termino
+    wet no se anulase, el error seria de orden unidad y no microscopic.
+    Limite 0.0: la identidad es algebraica (X*outVol*0 + in*outVol*1), no una
+    aproximacion; el unico caso no cubierto es el signo del cero, que fabs()
+    colapsa. */
+Outcome caseBypass() {
+  static const int NS[2] = {1, 4};
+  double worst = 0.0;
+  for (int k = 0; k < 2; ++k) {
+    cdt::OfflineChain ch;
+    ch.p.bypass = 1;
+    ch.p.outVol = 0.7f;
+    ch.p.lr4 = 1;
+    ch.configure(FS, NS[k]);
+    configureCurves(ch, coaldynamics::TANH, 11.f);
+    ch.settleRamps();               // bypassGain = 0 exacto
+
+    std::vector<float> in, out;
+    runSine(ch, 1000.0, 48000, in, out);
+    for (std::size_t i = 0; i < out.size(); ++i) {
+      const float ref = in[i] * ch.p.outVol;
+      const double d = std::fabs(static_cast<double>(out[i]) -
+                                 static_cast<double>(ref));
+      if (d > worst) worst = d;
+    }
+  }
+  Outcome o = {"T-BYPASS", "diff", worst, 0.0, "unidades", worst == 0.0};
+  return o;
+}
+
+/** T-BYPASS-LAT: con bypass ON y 4x, el pico de un impulso sale en n = 0, no
+    en 15 (LOCAL_OS_LATENCY): la ruta bypass no atraviesa stages, ni el
+    DC-blocker, ni el dry retrasado. Mismo punto de operacion que T-BYPASS. */
+Outcome caseBypassLat() {
+  cdt::OfflineChain ch;
+  ch.p.bypass = 1;
+  ch.p.outVol = 1.f;
+  ch.configure(FS, 4);
+  ch.settleRamps();
+
+  std::vector<float> out;
+  out.reserve(64);
+  for (int n = 0; n < 64; ++n) {
+    const float x = (n == 0) ? 1.f : 0.f;
+    float oL = 0.f;
+    float oR = 0.f;
+    ch.process(x, x, oL, oR);
+    out.push_back(oL);
+  }
+  const int idx = static_cast<int>(cdt::peakIndex(out));
+  Outcome o = {"T-BYPASS-LAT", "pico", static_cast<double>(idx), 0.0, "muestras",
+               idx == 0};
+  return o;
+}
+
+/** T-BYPASS-OFF: con bypass OFF la salida nueva es EXACTAMENTE la de v2.6.0.
+    No hay waveform golden en el repo (los 13+3 casos actuales comparan
+    magnitudes contra baseline, no muestras), asi que la comparacion se hace
+    contra `refOutL`, que guarda la expresion de v2.6.0 evaluada en el mismo
+    punto de la cadena (3 lineas del arnes, cero DSP duplicado). Punto que
+    ejercita dry + wet + DC + oversampling: mix 0.35, outVol 0.7, LR4, 4x,
+    TANH drive 11. Limite 0.0: con bypassGain = 1 la suma es x*1 + y*0. */
+Outcome caseBypassOff() {
+  cdt::OfflineChain ch;
+  ch.p.bypass = 0;
+  ch.p.mix = 0.35f;
+  ch.p.outVol = 0.7f;
+  ch.p.lr4 = 1;
+  ch.configure(FS, 4);
+  configureCurves(ch, coaldynamics::TANH, 11.f);
+  ch.settleRamps();                 // bypassGain = 1 exacto, dryGain = 1
+
+  double worst = 0.0;
+  for (int n = 0; n < 48000; ++n) {
+    const float x = static_cast<float>(
+        static_cast<double>(VPK) *
+        std::sin(6.283185307179586 * 1000.0 * static_cast<double>(n) /
+                 static_cast<double>(FS)));
+    float oL = 0.f;
+    float oR = 0.f;
+    ch.process(x, x, oL, oR);
+    const double d = std::fabs(static_cast<double>(oL) -
+                               static_cast<double>(ch.refOutL));
+    if (d > worst) worst = d;
+  }
+  Outcome o = {"T-BYPASS-OFF", "diff", worst, 0.0, "unidades", worst == 0.0};
+  return o;
+}
+
+/** T-BYPASS-RAMP: la conmutacion Off -> On no da click y la rampa llega al
+    objetivo en ~5 ms. Punto de operacion SUAVE a proposito, para que el
+    denominador no lo domine el slew propio de la senal: TANH con drive 1.1
+    (g = 1.1), seno de 100 Hz y Vpk 1.0, LR4 y 4x (el caso dificil: el bypass
+    no debe heredar el retardo del resampler). A 100 Hz y Vpk 1.0 el slew seco
+    maximo es 2*pi*100/48000 = 0,0131 V/muestra y el wet (g = 1.1 en el cruce
+    por cero) practicamente el mismo; con drive 11 o a 1 kHz el slew del punto
+    de operacion crece hasta 0,375 V/muestra y enmascara el crossfade.
+    La captura dura 200 ms y `p.bypass` pasa de 0 a 1 en n0 = NSAMP/2 + 60
+    (arranca en Off, con bypassGain = 1, sin settleRamps). El desplazamiento
+    de 60 muestras (45 grados a 100 Hz y 48 kHz) evita que la conmutacion
+    caiga en un cruce por cero del seno, donde wet y dry valen 0 y un escalon
+    no generaria discontinuidad (control negativo ciego).
+    Se mide (a) el mayor salto |out[n] - out[n-1]| en la ventana de transicion
+    (las 240 muestras de la rampa +- 8 de margen) y (b) el mayor salto en
+    regimen permanente de la MISMA captura, tomado como el maximo de las dos
+    ventanas estables: los 20 ms anteriores a la conmutacion (camino wet, el
+    que domina la rampa) y los 20 ms finales (camino seco, ya en bypass). El
+    cociente (a)/(b) debe quedar <= 1.5. Ademas se exige que bypassGain llegue
+    a 0 en 0,005 s +- 4 muestras (240 a 48 kHz; el numero se calcula con FS,
+    no se hardcodea). */
+Outcome caseBypassRamp() {
+  cdt::OfflineChain ramp;
+  ramp.p.bypass = 0;  // arranca en Off: la salida es el camino wet
+  ramp.p.outVol = 1.f;
+  ramp.p.lr4 = 1;
+  ramp.configure(FS, 4);
+  configureCurves(ramp, coaldynamics::TANH, 1.1f);  // knob 0.01 -> g = 1.1
+
+  const int NSAMP = static_cast<int>(0.2 * static_cast<double>(FS) + 0.5);
+  // n0 desplazado 60 muestras (45 grados a 100 Hz y 48 kHz) para que la
+  // conmutacion NO caiga en un cruce por cero: alli wet y dry valen 0 y un
+  // escalon no generaria discontinuidad, asi que el control negativo seria
+  // ciego (medido: ratio 1.000 sin desplazamiento, 19.07 con el).
+  const int n0 = NSAMP / 2 + 60;
+  const int rampLen = static_cast<int>(0.005 * static_cast<double>(FS) + 0.5);
+  const int margin = 8;
+  const int steady = static_cast<int>(0.02 * static_cast<double>(FS) + 0.5);
+
+  const double amp = 1.0;  // Vpk 1.0
+  double jumpRamp = 0.0;
+  double jumpSteady = 0.0;
+  float prev = 0.f;
+  int settled = 0;
+  bool settledFound = false;
+
+  for (int n = 0; n < NSAMP; ++n) {
+    if (n == n0) ramp.p.bypass = 1;
+    const float x = static_cast<float>(
+        amp * std::sin(6.283185307179586 * 100.0 * static_cast<double>(n) /
+                       static_cast<double>(FS)));
+    float oL = 0.f;
+    float oR = 0.f;
+    ramp.process(x, x, oL, oR);
+
+    if (n > 0) {
+      const double j = std::fabs(static_cast<double>(oL) - prev);
+      // Ventana de transicion: rampa completa +- margen.
+      if (n >= n0 - margin && n <= n0 + rampLen + margin) {
+        if (j > jumpRamp) jumpRamp = j;
+      }
+      // Regimen permanente: 20 ms antes de conmutar (wet) y 20 ms finales
+      // (seco). Fuera de la transicion para no contaminar el denominador.
+      else if ((n >= n0 - steady && n < n0 - margin) ||
+               n >= NSAMP - steady) {
+        if (j > jumpSteady) jumpSteady = j;
+      }
+    }
+    prev = oL;
+
+    if (!settledFound && ramp.bypassGain == 0.f) {
+      settled = n + 1;
+      settledFound = true;
+    }
+  }
+
+  const double ratio =
+      jumpRamp / ((jumpSteady > 1e-12) ? jumpSteady : 1e-12);
+  const int expect = static_cast<int>(0.005 * static_cast<double>(FS) + 0.5);
+  const bool settleOk = settledFound && std::abs((settled - n0) - expect) <= 4;
+  Outcome o = {"T-BYPASS-RAMP", "salto", ratio, 1.5, "ratio",
+               ratio <= 1.5 && settleOk};
+  return o;
+}
+
 // ---------------- T-DC ----------------
 Outcome caseDc() {
   static const int CV[2] = {coaldynamics::TUBE, coaldynamics::DIODE};
@@ -736,7 +915,7 @@ int main(int argc, char **argv) {
   }
   const std::vector<Expect> ex = loadExpectations(EXP);
 
-  const Outcome all[16] = {
+  const Outcome all[20] = {
       caseRecon(),       caseLat(),      caseTrim(),
       caseAlias(),       caseDc(),       caseNan(),
       caseMix(),         caseAdaaAlias("T-ADAA-FOLD", coaldynamics::FOLDBACK,
@@ -744,7 +923,9 @@ int main(int argc, char **argv) {
       caseAdaaAlias("T-ADAA-SINE", coaldynamics::SINEFOLD, -12.4),
       caseAdaaAlias("T-ADAA-TANH", coaldynamics::TANH, -31.9),
       caseAdaaThd(),     caseAdaaClean(), caseDriveCv(),
-      caseMakeup(),      caseAutoGain(),  caseAutoGainStab()};
+      caseMakeup(),      caseAutoGain(),  caseAutoGainStab(),
+      caseBypass(),      caseBypassLat(), caseBypassOff(),
+      caseBypassRamp()};
 
   int casos = 0;
   int p = 0;
@@ -752,7 +933,7 @@ int main(int argc, char **argv) {
   int f = 0;
   int exitCode = 0;
 
-  for (int i = 0; i < 16; ++i) {
+  for (int i = 0; i < 20; ++i) {
     const Outcome &o = all[i];
     if (!only.empty() && only != o.id) continue;
     ++casos;

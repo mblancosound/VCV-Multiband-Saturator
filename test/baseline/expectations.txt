@@ -22,3 +22,7 @@ T-DRIVECV | status=PASS
 T-MAKEUP | status=PASS
 T-AUTOG | status=PASS
 T-AUTOG-STAB | status=PASS
+T-BYPASS | status=PASS
+T-BYPASS-LAT | status=PASS
+T-BYPASS-OFF | status=PASS
+T-BYPASS-RAMP | status=PASS

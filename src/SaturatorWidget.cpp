@@ -251,6 +251,29 @@ struct AutoMakeupAction : history::ModuleAction {
   }
 };
 
+/** Toggle de bypass (0 = off, 1 = on). Selector puro: el setter publica el
+    atomico y no hay peticion pendiente que cancelar. */
+struct BypassAction : history::ModuleAction {
+  int oldMode = 0;
+  int newMode = 0;
+
+  BypassAction() { name = "toggle bypass"; }
+
+  void undo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setBypass(oldMode);
+  }
+
+  void redo() override {
+    Saturator *s = saturatorFromModuleId(moduleId);
+    if (!s)
+      return;
+    s->setBypass(newMode);
+  }
+};
+
 // --- Helpers de los menus: aplicar + registrar (o no-op si no cambia) -------
 
 /** Escribe newCurve en las tres bandas y registra UNA sola entrada de
@@ -393,6 +416,21 @@ void pushAutoMakeupHistory(Saturator *saturator, int mode) {
   saturator->setAutoMakeup(mode);
 
   AutoMakeupAction *action = new AutoMakeupAction;
+  action->moduleId = saturator->id;
+  action->oldMode = oldMode;
+  action->newMode = mode;
+  APP->history->push(action);
+}
+
+void pushBypassHistory(Saturator *saturator, int mode) {
+  // Sin pendiente: el atomico es el estado efectivo en cuanto se escribe (el
+  // crossfade de 5 ms lo hace el audio, no la UI).
+  const int oldMode = saturator->bypass.load(std::memory_order_relaxed);
+  if (oldMode == mode)
+    return;                      // NO-OP obligatorio: sin escritura ni history
+  saturator->setBypass(mode);
+
+  BypassAction *action = new BypassAction;
   action->moduleId = saturator->id;
   action->oldMode = oldMode;
   action->newMode = mode;
@@ -560,6 +598,13 @@ void SaturatorWidget::appendContextMenu(ui::Menu *menu) {
       "Auto Makeup", {"Off", "On"},
       [=]() { return (size_t) (saturator->autoMakeup.load() != 0 ? 1 : 0); },
       [=](size_t index) { pushAutoMakeupHistory(saturator, (int) index); }));
+
+  // Bypass (G3): Off = ruta completa v2.6.0; On = out = in * outVol (el DSP
+  // sigue corriendo, solo cambia el crossfade de salida de ~5 ms). Undoable.
+  menu->addChild(createIndexSubmenuItem(
+      "Bypass", {"Off", "On"},
+      [=]() { return (size_t) (saturator->bypass.load() != 0 ? 1 : 0); },
+      [=](size_t index) { pushBypassHistory(saturator, (int) index); }));
 
   menu->addChild(new ui::MenuSeparator);
 

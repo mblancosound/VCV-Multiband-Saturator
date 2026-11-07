@@ -249,12 +249,41 @@ void Saturator::resetAdaaState() {
 }
 
 void Saturator::onReset() {
-  applyOversampling(oversampling);   // stage + dry + filtros + historial ADAA
+  // 1) Delegado: stage activo, dryDelay, dryBufferL/R (OS_LATENCY+1), dryIndex,
+  //    los 6 biquads de la primera etapa, updateFilterFrequencies() y el
+  //    historial ADAA (uPrev + adaaResync + adaaCurveApplied).
+  applyOversampling(oversampling);
+
+  // 2) Segunda etapa de la cascada LR4 (low/high x L/R): applyOversampling NO
+  //    los resetea y setParameters() tampoco limpia el estado (ver 0/E2).
+  lowFilter2L.reset();
+  lowFilter2R.reset();
+  highFilter2L.reset();
+  highFilter2R.reset();
+
+  // 3) DC-blocker: solo el ESTADO. dcR es un coeficiente dependiente de
+  //    sampleRate; ponerlo a 0 lo convertiria en un diferenciador (ver 0/E1).
   dcX1L = 0.f;
   dcX1R = 0.f;
   dcY1L = 0.f;
   dcY1R = 0.f;
-  autoMakeupDsp.reset();             // envelopes a 0, gainS a 1 (G2)
+
+  // 4) Rampas: se asientan en su OBJETIVO, no en cero (ver 0/E3). Escribirlas
+  //    a 0 haria que inicializar el modulo arrancase con un fade de 5 ms.
+  const int soloBand = solo.load(std::memory_order_relaxed);
+  for (int b = 0; b < 3; b++)
+    soloGain[b] = (soloBand < 0 || soloBand == b) ? 1.f : 0.f;
+  dryGain = (soloBand < 0) ? 1.f : 0.f;
+  bypassGain = (bypass.load(std::memory_order_relaxed) != 0) ? 0.f : 1.f;
+
+  // 5) Medidores de saturacion: no intervienen en el audio (solo alimentan las
+  //    6 luces), pero un reset debe dejar el panel sin historia.
+  satLowMeter = 0.f;
+  satMidMeter = 0.f;
+  satHighMeter = 0.f;
+
+  // 6) Detectores de auto-gain: envolventes a 0 y gainS a 1 (G2).
+  autoMakeupDsp.reset();
 }
 
 /** Llamado desde UI o JSON: valida banda (0..2) e id (0..CURVE_COUNT-1).
@@ -280,6 +309,13 @@ void Saturator::setSolo(int band) {
 alternar el modo no reconstruye coeficientes ni resetea estado. */
 void Saturator::setAutoMakeup(int on) {
   autoMakeup.store((on != 0) ? 1 : 0, std::memory_order_relaxed);
+}
+
+/** Llamado desde UI o JSON. Selector puro: no hay peticion pendiente porque
+alternar el modo no reconstruye coeficientes ni resetea estado (el DSP sigue
+corriendo en bypass). */
+void Saturator::setBypass(int on) {
+  bypass.store((on != 0) ? 1 : 0, std::memory_order_relaxed);
 }
 
 void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
@@ -317,6 +353,8 @@ json_t *Saturator::dataToJson() {
   // Auto-makeup (v2.7). Siempre se escribe; la lectura es estricta.
   json_object_set_new(rootJ, "autoMakeup",
                       json_boolean(autoMakeup.load() != 0));
+  // Bypass (G3). Siempre se escribe; la lectura es estricta (json_is_true).
+  json_object_set_new(rootJ, "bypass", json_boolean(bypass.load() != 0));
 
   json_t *curvesJ = json_array();
   for (int i = 0; i < 3; i++)
@@ -359,6 +397,11 @@ void Saturator::dataFromJson(json_t *rootJ) {
   // un patch no es una accion de usuario (regla v2.4.0).
   json_t *makeupJ = json_object_get(rootJ, "autoMakeup");
   setAutoMakeup((makeupJ && json_is_true(makeupJ)) ? 1 : 0);
+  // "bypass": SOLO el booleano JSON true lo activa (json_is_true). Ausente,
+  // false, 1, "true" (string) o cualquier otro valor -> off (default v2.6.0:
+  // un patch antiguo carga sonando procesado). Sin historial (regla v2.4.0).
+  json_t *bypassJ = json_object_get(rootJ, "bypass");
+  setBypass((bypassJ && json_is_true(bypassJ)) ? 1 : 0);
   // Sin "curves" -> TANH en las tres bandas. Valor no entero o array corto
   // -> TANH en esa banda. Numero fuera de rango -> clamp 0..CURVE_COUNT-1.
   json_t *curvesJ = json_object_get(rootJ, "curves");
@@ -682,13 +725,32 @@ void Saturator::process(const ProcessArgs &args) {
   if (dryIndex > coaldynamics::OS_LATENCY)
     dryIndex = 0;
 
+  // Bypass (G3): rampa lineal de ~5 ms, mismo patron que soloGain. Se actualiza
+  // UNA vez por muestra base, justo antes de su unico consumidor, y queda
+  // constante en las N submuestras del bloque. El DSP sigue corriendo en bypass
+  // (stages, DC-blocker y meters): solo cambia este crossfade.
+  const float bypassStep = args.sampleTime * 200.f;
+  const float bypassTarget =
+      (bypass.load(std::memory_order_relaxed) != 0) ? 0.f : 1.f;
+  if (bypassGain < bypassTarget)
+    bypassGain = std::min(bypassTarget, bypassGain + bypassStep);
+  else
+    bypassGain = std::max(bypassTarget, bypassGain - bypassStep);
+
   float mix = params[MIX_PARAM].getValue();
   float outL = dryL * (1.f - mix) * dryGain + wetL * mix;
   float outR = dryR * (1.f - mix) * dryGain + wetR * mix;
 
   float outVol = params[OUTPUT_VOL].getValue();
-  outputs[OUT_L].setVoltage(outL * outVol);
-  outputs[OUT_R].setVoltage(outR * outVol);
+  // Salida (G3): crossfade entre la ruta v2.6.0 (bypassGain = 1) y la entrada
+  // seca (bypassGain = 0: sin crossover, sin curva, sin DC-blocker, sin el
+  // retardo de dry de OS_LATENCY). outVol se lee UNA vez (arriba) y multiplica
+  // a los dos terminos: con bypassGain = 1 el segundo vale in * outVol * 0 = 0,
+  // con bypassGain = 0 el primero vale outL * outVol * 0 = 0.
+  outputs[OUT_L].setVoltage(outL * outVol * bypassGain +
+                            inL * outVol * (1.f - bypassGain));
+  outputs[OUT_R].setVoltage(outR * outVol * bypassGain +
+                            inR * outVol * (1.f - bypassGain));
 
   if (lightDivider.process()) {
     float smoothTime = args.sampleTime * lightDivider.getDivision();
