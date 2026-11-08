@@ -8,6 +8,6 @@ void init(Plugin *p) {
   pluginInstance = p;
 
   modelSaturator =
-      createModel<Saturator, SaturatorWidget>("Multiband_Saturator");
+      createModel<Saturator, SaturatorWidget>("Anthracite");
   p->addModel(modelSaturator);
 }

@@ -4,13 +4,13 @@
 [![Release](https://img.shields.io/github/v/release/mblancosound/VCV-Multiband-Saturator)](https://github.com/mblancosound/VCV-Multiband-Saturator/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-**Anthracite** — Multiband Saturator plugin for [VCV Rack 2](https://vcvrack.com/) by **Coal Dynamics** (Manuel Blanco).
+**Anthracite** — three-band saturator module for [VCV Rack 2](https://vcvrack.com/) by **Coal Dynamics** (Manuel Blanco).
 
 Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, CV inputs, and stereo in/out.
 
-- Plugin: `Anthracite` (slug `Coal_Dynamics`, brand Coal Dynamics)
-- Module: `Multiband Saturator` (`Multiband_Saturator`)
-- Version: `2.6.1`
+- Plugin: `Coal Dynamics` (slug `Coal_Dynamics`, brand Coal Dynamics)
+- Module: `Anthracite` (`Anthracite`)
+- Version: `2.6.2`
 - License: MIT (see `LICENSE.txt`)
 - Source: https://github.com/mblancosound/VCV-Multiband-Saturator
 
@@ -134,7 +134,7 @@ Right-click the module:
   click, exactly like picking a curve by hand.
 - **Crossover** -> `Legacy` / `LR4`. See *Crossover* above. Undoable (*Undo change crossover*).
 - **ADAA** -> `Off` / `On`. See *Anti-aliasing* above. Undoable (*Undo toggle adaa*).
-- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.6.1` — sample rate, oversampling
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.6.2` — sample rate, oversampling
   factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 The saturation lights keep metering each band **before** the solo, so a muted band still shows its
