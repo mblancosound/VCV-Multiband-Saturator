@@ -490,42 +490,90 @@ Outcome caseDriveCv() {
 
 // ---------------- G2: makeup manual / automatico ----------------
 struct AutoGainResult {
-  double worstDev;   // peor |20log10(rms(out)/rms(in))|, dB
-  double worstPp;    // peor (max-min) del RMS por ventanas de 10 ms, dB
+  double worstLinDev;  // peor |auto ON - auto OFF| en regimen lineal, dB
+  double minHotComp;   // MENOR ganancia que aporta el auto a senal caliente, dB
+  double worstPp;      // peor (max-min) del RMS por ventanas de 10 ms, dB
 };
 
-/** AC4 sobre 9 curvas x n = 1/4 (18 medidas de 2 s). Sin allocation en el
-    camino de audio; el arnes puede usar std::vector. */
+/** Ley de 2.7.1 medida sobre la cadena real (replica de src/Saturator.cpp).
+    El detector compara u (post-curveDrive) con wet/TRIM[curve], asi que la
+    ganancia vale ~1 en regimen lineal y solo crece con la compresion real de
+    la curva. Valores medidos con el parche equivalente fuera del repo:
+
+    - Lineal (drive 3, Vpk 0.02): CLEAN 0.001 dB, TANH 0.009 dB.
+      Con la ley anterior: CLEAN +11.02 dB, TANH -9.42 dB.
+    - Caliente (drive 11, Vpk 0.2): compensacion de +5.76 dB (HARD/TUBE) a
+      +9.02 dB (FOLDBACK). Con la ley anterior: -13.2 a -17.0 dB.
+
+    CLEAN y TANH son las dos curvas de pendiente unidad en el origen; CUBIC
+    (1.5x) y TUBE (1.46x) tienen pendiente distinta de 1 y el makeup les divide
+    su propio factor, por eso el punto lineal solo las usa a ellas. CLEAN no
+    comprime nunca, asi que queda fuera del punto caliente. */
 AutoGainResult measureAutoGain(void) {
-  AutoGainResult r = {0.0, 0.0};
-  for (int c = 0; c < coaldynamics::CURVE_COUNT; ++c) {
+  AutoGainResult r = {0.0, 1e9, 0.0};
+
+  // (a) Regimen lineal: CLEAN y TANH, drive 3 (knob 0.2), Vpk 0.02.
+  static const int LIN[2] = {coaldynamics::CLEAN, coaldynamics::TANH};
+  for (int ci = 0; ci < 2; ++ci) {
     for (int k = 0; k < 2; ++k) {
       const int n = (k == 0) ? 1 : 4;
-      cdt::OfflineChain ch;
-      ch.p.lr4 = 1;                 // obligatorio (5.3)
-      ch.p.autoMakeup = 1;
-      ch.configure(FS, n);
-      configureCurves(ch, c, 11.f); // drive 1.0 -> 1 + 10*1
-      ch.p.volLow = ch.p.volMid = ch.p.volHigh = 1.f;
-      ch.p.mix = 1.f;
-      ch.p.outVol = 1.f;
+      double db[2];
+      for (int a = 0; a < 2; ++a) {   // a = 0: auto off (makeup 1.0); 1: auto on
+        cdt::OfflineChain ch;
+        ch.p.lr4 = 1;                 // obligatorio (5.3)
+        ch.p.autoMakeup = a;
+        ch.configure(FS, n);
+        configureCurves(ch, LIN[ci], 3.f);
+        ch.p.volLow = ch.p.volMid = ch.p.volHigh = 1.f;
+        ch.p.mix = 1.f;
+        ch.p.outVol = 1.f;
 
-      std::vector<float> in, out;
-      runSineAmp(ch, 1000.0, 2 * static_cast<int>(FS), 0.1, in, out);
+        std::vector<float> in, out;
+        runSineAmp(ch, 1000.0, 2 * static_cast<int>(FS), 0.02, in, out);
+        const std::size_t from = static_cast<std::size_t>(0.2 * FS);
+        db[a] = cdt::db20(cdt::rms(tailFrom(out, from)));
+      }
+      const double dev = std::fabs(db[1] - db[0]);
+      if (dev > r.worstLinDev)
+        r.worstLinDev = dev;
+    }
+  }
 
-      const std::size_t from = static_cast<std::size_t>(0.2 * FS);  // 200 ms
-      const double dev = cdt::db20(cdt::rms(tailFrom(out, from)) /
-                                   cdt::rms(tailFrom(in, from)));
-      if (std::fabs(dev) > r.worstDev)
-        r.worstDev = std::fabs(dev);
+  // (b) Senal caliente: las 8 curvas que comprimen (1 = TANH .. 8 = DIODE;
+  //     CLEAN = 0 no comprime), drive 11, Vpk 0.2.
+  for (int c = 1; c < coaldynamics::CURVE_COUNT; ++c) {
+    for (int k = 0; k < 2; ++k) {
+      const int n = (k == 0) ? 1 : 4;
+      double db[2];
+      std::vector<float> in, out, outAuto;
+      for (int a = 0; a < 2; ++a) {
+        cdt::OfflineChain ch;
+        ch.p.lr4 = 1;
+        ch.p.autoMakeup = a;
+        ch.configure(FS, n);
+        configureCurves(ch, c, 11.f);
+        ch.p.volLow = ch.p.volMid = ch.p.volHigh = 1.f;
+        ch.p.mix = 1.f;
+        ch.p.outVol = 1.f;
+
+        runSineAmp(ch, 1000.0, 2 * static_cast<int>(FS), 0.2, in, out);
+        const std::size_t from = static_cast<std::size_t>(0.2 * FS);
+        db[a] = cdt::db20(cdt::rms(tailFrom(out, from)));
+        if (a == 1)
+          outAuto = out;
+      }
+      const double comp = db[1] - db[0];
+      if (comp < r.minHotComp)
+        r.minHotComp = comp;
 
       // p-p: RMS por ventanas de 10 ms (480 muestras = 10 periodos de 1 kHz).
       double lo = 1e9;
       double hi = -1e9;
-      for (std::size_t i = from; i + 480 <= out.size(); i += 480) {
+      const std::size_t from = static_cast<std::size_t>(0.2 * FS);
+      for (std::size_t i = from; i + 480 <= outAuto.size(); i += 480) {
         double acc = 0.0;
         for (std::size_t j = 0; j < 480; ++j) {
-          const double v = static_cast<double>(out[i + j]);
+          const double v = static_cast<double>(outAuto[i + j]);
           acc += v * v;
         }
         const double d = cdt::db20(std::sqrt(acc / 480.0));
@@ -569,197 +617,36 @@ Outcome caseMakeup() {
   return o;
 }
 
-/** AC4, criterio de nivel: peor |G_out - G_in| en 9 curvas x n = 1/4. */
-Outcome caseAutoGain() {
+/** Ley de 2.7.1, criterio lineal: activar el auto-makeup NO debe cambiar el
+    nivel cuando la curva no comprime (CLEAN y TANH, drive 3, Vpk 0.02), que es
+    el bug reportado: con la ley anterior daba +11.02 dB en CLEAN y -9.42 dB en
+    TANH, es decir cancelaba el mando de drive. Medido con la ley nueva: 0.009
+    dB de peor desviacion; limite 0.5 dB. */
+Outcome caseAutoGainLin() {
   const AutoGainResult r = measureAutoGain();
-  Outcome o = {"T-AUTOG", "delta", r.worstDev, 1.0, "dB", r.worstDev <= 1.0};
+  Outcome o = {"T-AUTOG-LIN", "delta", r.worstLinDev, 0.5, "dB",
+               r.worstLinDev <= 0.5};
   return o;
 }
 
-/** AC4, criterio de estabilidad: peor p-p del nivel tras 200 ms. */
+/** Ley de 2.7.1, criterio de compresion: a senal caliente (drive 11, Vpk 0.2)
+    el auto debe recuperar al menos 5 dB de la compresion de la curva, en las 8
+    curvas que comprimen y en 1x y 4x. Medido: de 5.76 dB (HARD/TUBE) a 9.02 dB
+    (FOLDBACK). Con la ley anterior el valor era negativo (-13.2 a -17.0 dB):
+    el makeup atenuaba. El tope de 4x sigue vigente. */
+Outcome caseAutoGain() {
+  const AutoGainResult r = measureAutoGain();
+  Outcome o = {"T-AUTOG", "comp", r.minHotComp, 5.0, "dB",
+               r.minHotComp >= 5.0};
+  return o;
+}
+
+/** Ley de 2.7.1, criterio de estabilidad: peor p-p del nivel tras 200 ms con
+    auto en senal caliente (drive 11, Vpk 0.2), 8 curvas x n = 1/4. */
 Outcome caseAutoGainStab() {
   const AutoGainResult r = measureAutoGain();
   Outcome o = {"T-AUTOG-STAB", "p-p", r.worstPp, 0.5, "dB",
                r.worstPp <= 0.5};
-  return o;
-}
-
-// ---------------- G3: bypass ----------------
-
-/** T-BYPASS: con bypass ON la salida es EXACTAMENTE in * outVol, a 1x y a 4x.
-    Se compara muestra a muestra contra `in * outVol` calculado en float con el
-    mismo outVol (operacion identica, sin redondeo intermedio). Punto de
-    operacion saturado (TANH, drive 11, 5 V de pico) a proposito: si el termino
-    wet no se anulase, el error seria de orden unidad y no microscopic.
-    Limite 0.0: la identidad es algebraica (X*outVol*0 + in*outVol*1), no una
-    aproximacion; el unico caso no cubierto es el signo del cero, que fabs()
-    colapsa. */
-Outcome caseBypass() {
-  static const int NS[2] = {1, 4};
-  double worst = 0.0;
-  for (int k = 0; k < 2; ++k) {
-    cdt::OfflineChain ch;
-    ch.p.bypass = 1;
-    ch.p.outVol = 0.7f;
-    ch.p.lr4 = 1;
-    ch.configure(FS, NS[k]);
-    configureCurves(ch, coaldynamics::TANH, 11.f);
-    ch.settleRamps();               // bypassGain = 0 exacto
-
-    std::vector<float> in, out;
-    runSine(ch, 1000.0, 48000, in, out);
-    for (std::size_t i = 0; i < out.size(); ++i) {
-      const float ref = in[i] * ch.p.outVol;
-      const double d = std::fabs(static_cast<double>(out[i]) -
-                                 static_cast<double>(ref));
-      if (d > worst) worst = d;
-    }
-  }
-  Outcome o = {"T-BYPASS", "diff", worst, 0.0, "unidades", worst == 0.0};
-  return o;
-}
-
-/** T-BYPASS-LAT: con bypass ON y 4x, el pico de un impulso sale en n = 0, no
-    en 15 (LOCAL_OS_LATENCY): la ruta bypass no atraviesa stages, ni el
-    DC-blocker, ni el dry retrasado. Mismo punto de operacion que T-BYPASS. */
-Outcome caseBypassLat() {
-  cdt::OfflineChain ch;
-  ch.p.bypass = 1;
-  ch.p.outVol = 1.f;
-  ch.configure(FS, 4);
-  ch.settleRamps();
-
-  std::vector<float> out;
-  out.reserve(64);
-  for (int n = 0; n < 64; ++n) {
-    const float x = (n == 0) ? 1.f : 0.f;
-    float oL = 0.f;
-    float oR = 0.f;
-    ch.process(x, x, oL, oR);
-    out.push_back(oL);
-  }
-  const int idx = static_cast<int>(cdt::peakIndex(out));
-  Outcome o = {"T-BYPASS-LAT", "pico", static_cast<double>(idx), 0.0, "muestras",
-               idx == 0};
-  return o;
-}
-
-/** T-BYPASS-OFF: con bypass OFF la salida nueva es EXACTAMENTE la de v2.6.0.
-    No hay waveform golden en el repo (los 13+3 casos actuales comparan
-    magnitudes contra baseline, no muestras), asi que la comparacion se hace
-    contra `refOutL`, que guarda la expresion de v2.6.0 evaluada en el mismo
-    punto de la cadena (3 lineas del arnes, cero DSP duplicado). Punto que
-    ejercita dry + wet + DC + oversampling: mix 0.35, outVol 0.7, LR4, 4x,
-    TANH drive 11. Limite 0.0: con bypassGain = 1 la suma es x*1 + y*0. */
-Outcome caseBypassOff() {
-  cdt::OfflineChain ch;
-  ch.p.bypass = 0;
-  ch.p.mix = 0.35f;
-  ch.p.outVol = 0.7f;
-  ch.p.lr4 = 1;
-  ch.configure(FS, 4);
-  configureCurves(ch, coaldynamics::TANH, 11.f);
-  ch.settleRamps();                 // bypassGain = 1 exacto, dryGain = 1
-
-  double worst = 0.0;
-  for (int n = 0; n < 48000; ++n) {
-    const float x = static_cast<float>(
-        static_cast<double>(VPK) *
-        std::sin(6.283185307179586 * 1000.0 * static_cast<double>(n) /
-                 static_cast<double>(FS)));
-    float oL = 0.f;
-    float oR = 0.f;
-    ch.process(x, x, oL, oR);
-    const double d = std::fabs(static_cast<double>(oL) -
-                               static_cast<double>(ch.refOutL));
-    if (d > worst) worst = d;
-  }
-  Outcome o = {"T-BYPASS-OFF", "diff", worst, 0.0, "unidades", worst == 0.0};
-  return o;
-}
-
-/** T-BYPASS-RAMP: la conmutacion Off -> On no da click y la rampa llega al
-    objetivo en ~5 ms. Punto de operacion SUAVE a proposito, para que el
-    denominador no lo domine el slew propio de la senal: TANH con drive 1.1
-    (g = 1.1), seno de 100 Hz y Vpk 1.0, LR4 y 4x (el caso dificil: el bypass
-    no debe heredar el retardo del resampler). A 100 Hz y Vpk 1.0 el slew seco
-    maximo es 2*pi*100/48000 = 0,0131 V/muestra y el wet (g = 1.1 en el cruce
-    por cero) practicamente el mismo; con drive 11 o a 1 kHz el slew del punto
-    de operacion crece hasta 0,375 V/muestra y enmascara el crossfade.
-    La captura dura 200 ms y `p.bypass` pasa de 0 a 1 en n0 = NSAMP/2 + 60
-    (arranca en Off, con bypassGain = 1, sin settleRamps). El desplazamiento
-    de 60 muestras (45 grados a 100 Hz y 48 kHz) evita que la conmutacion
-    caiga en un cruce por cero del seno, donde wet y dry valen 0 y un escalon
-    no generaria discontinuidad (control negativo ciego).
-    Se mide (a) el mayor salto |out[n] - out[n-1]| en la ventana de transicion
-    (las 240 muestras de la rampa +- 8 de margen) y (b) el mayor salto en
-    regimen permanente de la MISMA captura, tomado como el maximo de las dos
-    ventanas estables: los 20 ms anteriores a la conmutacion (camino wet, el
-    que domina la rampa) y los 20 ms finales (camino seco, ya en bypass). El
-    cociente (a)/(b) debe quedar <= 1.5. Ademas se exige que bypassGain llegue
-    a 0 en 0,005 s +- 4 muestras (240 a 48 kHz; el numero se calcula con FS,
-    no se hardcodea). */
-Outcome caseBypassRamp() {
-  cdt::OfflineChain ramp;
-  ramp.p.bypass = 0;  // arranca en Off: la salida es el camino wet
-  ramp.p.outVol = 1.f;
-  ramp.p.lr4 = 1;
-  ramp.configure(FS, 4);
-  configureCurves(ramp, coaldynamics::TANH, 1.1f);  // knob 0.01 -> g = 1.1
-
-  const int NSAMP = static_cast<int>(0.2 * static_cast<double>(FS) + 0.5);
-  // n0 desplazado 60 muestras (45 grados a 100 Hz y 48 kHz) para que la
-  // conmutacion NO caiga en un cruce por cero: alli wet y dry valen 0 y un
-  // escalon no generaria discontinuidad, asi que el control negativo seria
-  // ciego (medido: ratio 1.000 sin desplazamiento, 19.07 con el).
-  const int n0 = NSAMP / 2 + 60;
-  const int rampLen = static_cast<int>(0.005 * static_cast<double>(FS) + 0.5);
-  const int margin = 8;
-  const int steady = static_cast<int>(0.02 * static_cast<double>(FS) + 0.5);
-
-  const double amp = 1.0;  // Vpk 1.0
-  double jumpRamp = 0.0;
-  double jumpSteady = 0.0;
-  float prev = 0.f;
-  int settled = 0;
-  bool settledFound = false;
-
-  for (int n = 0; n < NSAMP; ++n) {
-    if (n == n0) ramp.p.bypass = 1;
-    const float x = static_cast<float>(
-        amp * std::sin(6.283185307179586 * 100.0 * static_cast<double>(n) /
-                       static_cast<double>(FS)));
-    float oL = 0.f;
-    float oR = 0.f;
-    ramp.process(x, x, oL, oR);
-
-    if (n > 0) {
-      const double j = std::fabs(static_cast<double>(oL) - prev);
-      // Ventana de transicion: rampa completa +- margen.
-      if (n >= n0 - margin && n <= n0 + rampLen + margin) {
-        if (j > jumpRamp) jumpRamp = j;
-      }
-      // Regimen permanente: 20 ms antes de conmutar (wet) y 20 ms finales
-      // (seco). Fuera de la transicion para no contaminar el denominador.
-      else if ((n >= n0 - steady && n < n0 - margin) ||
-               n >= NSAMP - steady) {
-        if (j > jumpSteady) jumpSteady = j;
-      }
-    }
-    prev = oL;
-
-    if (!settledFound && ramp.bypassGain == 0.f) {
-      settled = n + 1;
-      settledFound = true;
-    }
-  }
-
-  const double ratio =
-      jumpRamp / ((jumpSteady > 1e-12) ? jumpSteady : 1e-12);
-  const int expect = static_cast<int>(0.005 * static_cast<double>(FS) + 0.5);
-  const bool settleOk = settledFound && std::abs((settled - n0) - expect) <= 4;
-  Outcome o = {"T-BYPASS-RAMP", "salto", ratio, 1.5, "ratio",
-               ratio <= 1.5 && settleOk};
   return o;
 }
 
@@ -915,7 +802,7 @@ int main(int argc, char **argv) {
   }
   const std::vector<Expect> ex = loadExpectations(EXP);
 
-  const Outcome all[20] = {
+  const Outcome all[17] = {
       caseRecon(),       caseLat(),      caseTrim(),
       caseAlias(),       caseDc(),       caseNan(),
       caseMix(),         caseAdaaAlias("T-ADAA-FOLD", coaldynamics::FOLDBACK,
@@ -923,9 +810,7 @@ int main(int argc, char **argv) {
       caseAdaaAlias("T-ADAA-SINE", coaldynamics::SINEFOLD, -12.4),
       caseAdaaAlias("T-ADAA-TANH", coaldynamics::TANH, -31.9),
       caseAdaaThd(),     caseAdaaClean(), caseDriveCv(),
-      caseMakeup(),      caseAutoGain(),  caseAutoGainStab(),
-      caseBypass(),      caseBypassLat(), caseBypassOff(),
-      caseBypassRamp()};
+      caseMakeup(),      caseAutoGainLin(), caseAutoGain(), caseAutoGainStab()};
 
   int casos = 0;
   int p = 0;
@@ -933,7 +818,7 @@ int main(int argc, char **argv) {
   int f = 0;
   int exitCode = 0;
 
-  for (int i = 0; i < 20; ++i) {
+  for (int i = 0; i < 17; ++i) {
     const Outcome &o = all[i];
     if (!only.empty() && only != o.id) continue;
     ++casos;

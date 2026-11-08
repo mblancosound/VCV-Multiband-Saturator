@@ -30,8 +30,6 @@ struct ChainParams {
   float makeupLow, makeupMid, makeupHigh;
   /** 0 = auto-makeup off (v2.6.0), 1 = on (G2). */
   int autoMakeup;
-  /** 0 = bypass off (v2.6.0), 1 = bypass on (G3). */
-  int bypass;
 
   ChainParams()
       : driveLow(1.f), driveMid(1.f), driveHigh(1.f),
@@ -40,8 +38,7 @@ struct ChainParams {
         panLow(0.f), panMid(0.f), panHigh(0.f),
         volLow(1.f), volMid(1.f), volHigh(1.f),
         soloBand(-1), mix(1.f), outVol(1.f), lr4(0), adaa(0),
-        makeupLow(1.f), makeupMid(1.f), makeupHigh(1.f), autoMakeup(0),
-        bypass(0) {}
+        makeupLow(1.f), makeupMid(1.f), makeupHigh(1.f), autoMakeup(0) {}
 };
 
 // Replica offline de Saturator::process(). Copia la topologia y los
@@ -85,13 +82,6 @@ struct OfflineChain {
 
   /** Mismo objeto que usa el modulo (src/AutoMakeup.hpp), no una copia. */
   coaldynamics::AutoMakeup autoMakeupDsp;
-
-  /** Rampa de bypass (G3), replica de Saturator::bypassGain. */
-  float bypassGain;
-  /** Expresion de salida congelada de v2.6.0, evaluada en el MISMO punto del
-      codigo que la nueva (una linea, sin DSP duplicado). Solo la lee
-      T-BYPASS-OFF. */
-  float refOutL, refOutR;
 
   OfflineChain() { configure(48000.f, 1); }
 
@@ -151,22 +141,14 @@ struct OfflineChain {
 
     autoMakeupDsp.setSampleRate(fs);
     autoMakeupDsp.reset();
-
-    // Estado inicial identico al del modulo: la rampa de bypass arranca en 1
-    // (bypassGain = 1.f en src/Saturator.hpp), NO en el objetivo de p.bypass.
-    bypassGain = 1.f;
-    refOutL = 0.f;
-    refOutR = 0.f;
   }
 
-  /** Deja las tres rampas en su OBJETIVO, igual que onReset() (contrato G3,
-      correccion 3): los casos que miden solo el estado estacionario no tienen
-      que esperar 5 ms de fade. Los casos que miden la rampa NO lo llaman. */
+  /** Deja las rampas de solo/dry en su OBJETIVO, igual que onReset(): los casos
+      que miden solo el estado estacionario no tienen que esperar 5 ms de fade. */
   void settleRamps() {
     for (int b = 0; b < 3; ++b)
       soloGain[b] = (p.soloBand < 0 || p.soloBand == b) ? 1.f : 0.f;
     dryGain = (p.soloBand < 0) ? 1.f : 0.f;
-    bypassGain = p.bypass ? 0.f : 1.f;
   }
 
   template <class Stage>
@@ -272,16 +254,24 @@ struct OfflineChain {
       wetL[i] = lowOutL + midOutL + highOutL;
       wetR[i] = lowOutR + midOutR + highOutR;
 
-      // Detector G2: una vez por muestra base, en la ultima submuestra.
+      // Detector G2 (ley corregida en 2.7.1, replica de src/Saturator.cpp):
+      // dIn = u post-curveDrive (lo que ENTRA en la no-linealidad) y dOut =
+      // wet / TRIM[curve] (lo que SALE, sin el trim estatico). Asi la ganancia
+      // vale ~1 en regimen lineal y el makeup solo compensa la compresion real
+      // de la curva. La ley anterior comparaba la banda pre-drive con la salida
+      // post-curva, dos escalas distintas.
       if (i == N - 1) {
         float dIn[3];
         float dOut[3];
-        dIn[0] = 0.5f * (std::fabs(lowLf) + std::fabs(lowRf));
-        dIn[1] = 0.5f * (std::fabs(midLf) + std::fabs(midRf));
-        dIn[2] = 0.5f * (std::fabs(highLf) + std::fabs(highRf));
-        dOut[0] = 0.5f * (std::fabs(wetLowL) + std::fabs(wetLowR));
-        dOut[1] = 0.5f * (std::fabs(wetMidL) + std::fabs(wetMidR));
-        dOut[2] = 0.5f * (std::fabs(wetHighL) + std::fabs(wetHighR));
+        dIn[0] = 0.5f * (std::fabs(uLowL) + std::fabs(uLowR));
+        dIn[1] = 0.5f * (std::fabs(uMidL) + std::fabs(uMidR));
+        dIn[2] = 0.5f * (std::fabs(uHighL) + std::fabs(uHighR));
+        dOut[0] = 0.5f * (std::fabs(wetLowL) + std::fabs(wetLowR)) /
+                  coaldynamics::TRIM[p.curveLow];
+        dOut[1] = 0.5f * (std::fabs(wetMidL) + std::fabs(wetMidR)) /
+                  coaldynamics::TRIM[p.curveMid];
+        dOut[2] = 0.5f * (std::fabs(wetHighL) + std::fabs(wetHighR)) /
+                  coaldynamics::TRIM[p.curveHigh];
         autoMakeupDsp.update(dIn, dOut);
       }
     }
@@ -341,21 +331,8 @@ struct OfflineChain {
     dryIndex++;
     if (dryIndex > LOCAL_OS_LATENCY) dryIndex = 0;
 
-    // Bypass (G3): misma rampa lineal que el modulo, una vez por muestra base y
-    // antes de usarse. 200 unidades/s = ~5 ms a cualquier sample rate.
-    const float bypassStep = 200.f / sampleRate;
-    const float bypassTarget = p.bypass ? 0.f : 1.f;
-    if (bypassGain < bypassTarget)
-      bypassGain = std::min(bypassTarget, bypassGain + bypassStep);
-    else
-      bypassGain = std::max(bypassTarget, bypassGain - bypassStep);
-
-    // Referencia congelada de v2.6.0 (la linea exacta que habia aqui).
-    refOutL = (dryL * (1.f - p.mix) * dryGain + wL * p.mix) * p.outVol;
-    refOutR = (dryR * (1.f - p.mix) * dryGain + wR * p.mix) * p.outVol;
-
-    outL = refOutL * bypassGain + inL * p.outVol * (1.f - bypassGain);
-    outR = refOutR * bypassGain + inR * p.outVol * (1.f - bypassGain);
+    outL = (dryL * (1.f - p.mix) * dryGain + wL * p.mix) * p.outVol;
+    outR = (dryR * (1.f - p.mix) * dryGain + wR * p.mix) * p.outVol;
   }
 };
 

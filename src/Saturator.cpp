@@ -77,6 +77,12 @@ Saturator::Saturator() {
   configOutput(OUT_L, "Left output");
   configOutput(OUT_R, "Right output");
 
+  // Ctrl+E de Rack: ruta directa entrada -> salida mientras el modulo esta
+  // bypasseado (engine::Module::configBypass). Sin esto Rack no sabe adonde
+  // llevar la senal y el modulo se queda mudo al bypassearlo.
+  configBypass(IN_L, OUT_L);
+  configBypass(IN_R, OUT_R);
+
   lightDivider.setDivision(32);
 
   // Filtros disenados para la frecuencia de muestreo actual x factor de
@@ -274,7 +280,6 @@ void Saturator::onReset() {
   for (int b = 0; b < 3; b++)
     soloGain[b] = (soloBand < 0 || soloBand == b) ? 1.f : 0.f;
   dryGain = (soloBand < 0) ? 1.f : 0.f;
-  bypassGain = (bypass.load(std::memory_order_relaxed) != 0) ? 0.f : 1.f;
 
   // 5) Medidores de saturacion: no intervienen en el audio (solo alimentan las
   //    6 luces), pero un reset debe dejar el panel sin historia.
@@ -309,13 +314,6 @@ void Saturator::setSolo(int band) {
 alternar el modo no reconstruye coeficientes ni resetea estado. */
 void Saturator::setAutoMakeup(int on) {
   autoMakeup.store((on != 0) ? 1 : 0, std::memory_order_relaxed);
-}
-
-/** Llamado desde UI o JSON. Selector puro: no hay peticion pendiente porque
-alternar el modo no reconstruye coeficientes ni resetea estado (el DSP sigue
-corriendo en bypass). */
-void Saturator::setBypass(int on) {
-  bypass.store((on != 0) ? 1 : 0, std::memory_order_relaxed);
 }
 
 void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
@@ -353,8 +351,6 @@ json_t *Saturator::dataToJson() {
   // Auto-makeup (v2.7). Siempre se escribe; la lectura es estricta.
   json_object_set_new(rootJ, "autoMakeup",
                       json_boolean(autoMakeup.load() != 0));
-  // Bypass (G3). Siempre se escribe; la lectura es estricta (json_is_true).
-  json_object_set_new(rootJ, "bypass", json_boolean(bypass.load() != 0));
 
   json_t *curvesJ = json_array();
   for (int i = 0; i < 3; i++)
@@ -397,11 +393,6 @@ void Saturator::dataFromJson(json_t *rootJ) {
   // un patch no es una accion de usuario (regla v2.4.0).
   json_t *makeupJ = json_object_get(rootJ, "autoMakeup");
   setAutoMakeup((makeupJ && json_is_true(makeupJ)) ? 1 : 0);
-  // "bypass": SOLO el booleano JSON true lo activa (json_is_true). Ausente,
-  // false, 1, "true" (string) o cualquier otro valor -> off (default v2.6.0:
-  // un patch antiguo carga sonando procesado). Sin historial (regla v2.4.0).
-  json_t *bypassJ = json_object_get(rootJ, "bypass");
-  setBypass((bypassJ && json_is_true(bypassJ)) ? 1 : 0);
   // Sin "curves" -> TANH en las tres bandas. Valor no entero o array corto
   // -> TANH en esa banda. Numero fuera de rango -> clamp 0..CURVE_COUNT-1.
   json_t *curvesJ = json_object_get(rootJ, "curves");
@@ -559,17 +550,21 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
       satMidMeter = std::min(std::abs(wet[1][0] - u[1][0]), 1.f);
       satHighMeter = std::min(std::abs(wet[2][0] - u[2][0]), 1.f);
 
-      // Auto-makeup (G2): UN detector por banda y muestra base. dIn = banda
-      // post-crossover PRE-curveDrive (lowL/midL/upperL, no u); dOut =
-      // post-curva post-TRIM (wet, antes de vol/pan/solo). Corre siempre,
-      // este el modo activado o no.
+      // Auto-makeup (ley corregida en 2.7.1): se compara la senal que ENTRA en
+      // la no-linealidad (u, post-curveDrive) con la que SALE de ella (wet),
+      // descontando el TRIM estatico de la curva. Asi la ganancia vale ~1 en
+      // regimen lineal y NO cancela el mando de drive; solo compensa la
+      // compresion real de la curva. La version anterior comparaba la banda
+      // pre-drive con la salida post-curva, dos escalas distintas: daba 3.57
+      // constante en CLEAN y ~1/drive en regimen lineal.
       float dIn[3];
       float dOut[3];
-      dIn[0] = 0.5f * (std::abs(lowL) + std::abs(lowR));
-      dIn[1] = 0.5f * (std::abs(midL) + std::abs(midR));
-      dIn[2] = 0.5f * (std::abs(upperL) + std::abs(upperR));
+      dIn[0] = 0.5f * (std::abs(u[0][0]) + std::abs(u[0][1]));
+      dIn[1] = 0.5f * (std::abs(u[1][0]) + std::abs(u[1][1]));
+      dIn[2] = 0.5f * (std::abs(u[2][0]) + std::abs(u[2][1]));
       for (int b = 0; b < 3; b++)
-        dOut[b] = 0.5f * (std::abs(wet[b][0]) + std::abs(wet[b][1]));
+        dOut[b] = 0.5f * (std::abs(wet[b][0]) + std::abs(wet[b][1])) /
+                  coaldynamics::TRIM[curve[b]];
       autoMakeupDsp.update(dIn, dOut);
     }
   }
@@ -725,32 +720,13 @@ void Saturator::process(const ProcessArgs &args) {
   if (dryIndex > coaldynamics::OS_LATENCY)
     dryIndex = 0;
 
-  // Bypass (G3): rampa lineal de ~5 ms, mismo patron que soloGain. Se actualiza
-  // UNA vez por muestra base, justo antes de su unico consumidor, y queda
-  // constante en las N submuestras del bloque. El DSP sigue corriendo en bypass
-  // (stages, DC-blocker y meters): solo cambia este crossfade.
-  const float bypassStep = args.sampleTime * 200.f;
-  const float bypassTarget =
-      (bypass.load(std::memory_order_relaxed) != 0) ? 0.f : 1.f;
-  if (bypassGain < bypassTarget)
-    bypassGain = std::min(bypassTarget, bypassGain + bypassStep);
-  else
-    bypassGain = std::max(bypassTarget, bypassGain - bypassStep);
-
   float mix = params[MIX_PARAM].getValue();
   float outL = dryL * (1.f - mix) * dryGain + wetL * mix;
   float outR = dryR * (1.f - mix) * dryGain + wetR * mix;
 
   float outVol = params[OUTPUT_VOL].getValue();
-  // Salida (G3): crossfade entre la ruta v2.6.0 (bypassGain = 1) y la entrada
-  // seca (bypassGain = 0: sin crossover, sin curva, sin DC-blocker, sin el
-  // retardo de dry de OS_LATENCY). outVol se lee UNA vez (arriba) y multiplica
-  // a los dos terminos: con bypassGain = 1 el segundo vale in * outVol * 0 = 0,
-  // con bypassGain = 0 el primero vale outL * outVol * 0 = 0.
-  outputs[OUT_L].setVoltage(outL * outVol * bypassGain +
-                            inL * outVol * (1.f - bypassGain));
-  outputs[OUT_R].setVoltage(outR * outVol * bypassGain +
-                            inR * outVol * (1.f - bypassGain));
+  outputs[OUT_L].setVoltage(outL * outVol);
+  outputs[OUT_R].setVoltage(outR * outVol);
 
   if (lightDivider.process()) {
     float smoothTime = args.sampleTime * lightDivider.getDivision();

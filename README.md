@@ -10,7 +10,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin: `Coal Dynamics` (slug `Coal_Dynamics`)
 - Module: `Anthracite` (`Anthracite`)
-- Version: `2.7.0`
+- Version: `2.7.1`
 - License: MIT (see `LICENSE.txt`)
 - Source: https://github.com/mblancosound/VCV-Multiband-Saturator
 
@@ -25,7 +25,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 - ADAA (first-order anti-derivative anti-aliasing) on Tanh/Cubic/Arctan/Hard/Foldback/Sine Fold (v2.6.0, default off)
 - Per-band Drive CV with its own attenuverter: +/-10 V spans the whole knob (v2.7.0)
 - Per-band Makeup (0..4x) plus automatic per-band gain compensation (v2.7.0, default off)
-- Bypass with a click-free crossfade and a complete state reset on *Initialize* (v2.7.0)
+- No module-level bypass: use Rack's own **Ctrl+E**, which routes input to output (v2.7.1)
 - Read-only status info in the menu (sample rate, oversampling factor, latency, version)
 - Master Output volume + Mix (dry/wet)
 - Custom SVG knobs, ports and panel in `res/`
@@ -133,28 +133,41 @@ drive   = 1 + 10 * knobEff
 its centre position disables the CV. With nothing patched the drive is bit-identical to v2.6.0, so old
 patches are unaffected. No new key is stored in the patch: the attenuverters are regular parameters.
 
-## Makeup and Auto Makeup (v2.7.0)
+## Makeup and Auto Makeup (v2.7.0, law fixed in v2.7.1)
 
 Each band has a **Makeup** gain from 0 to 4x (default 1.0 = no change), applied after the curve and
 before pan and volume.
 
 **Auto Makeup** (context menu, default `Off`) replaces the manual makeup with a per-band gain
-compensation: the module tracks the level before the curve (`envIn`) and after it (`envOut`) and
-applies `envIn / envOut`, smoothed, so that pushing the drive does not change the loudness of the
-band. The envelopes use a 10 ms attack and a 100 ms release, and the gain is frozen below -60 dBFS so
-silence does not pump. With Auto Makeup on, the manual makeup knob is ignored. Saved in the patch as
-`"autoMakeup": true|false`; old patches load with it off.
+compensation. The detector compares the level that **enters** the non-linearity - the band after the
+drive, `envIn` - with the level that **leaves** it, with the curve's static trim divided out
+(`envOut`), and applies `envIn / envOut`, smoothed. The makeup therefore compensates only the
+compression the curve is really doing: in the linear region the gain is 1.0, so turning the drive up
+still makes the band louder, which is the whole point of the drive control.
 
-Measured against unity gain, the worst error over the nine curves at 1x and 4x is 0.81 dB (Cubic at
-4x), and the residual ripple after 200 ms is below 0.01 dB.
+The envelopes use a 10 ms attack and a 100 ms release and the gain is frozen below -60 dBFS, so
+silence does not pump. The gain is capped at 4x (+12 dB). Curves whose slope at the origin is not 1
+(Cubic 1.5, Tube 1.46) divide their own slope out, so their linear-region gain is about 0.67; that is
+the curve's own gain, not a compensation error. With Auto Makeup on, the manual makeup knob is
+ignored. Saved in the patch as `"autoMakeup": true|false`; old patches load with it off.
 
-## Bypass (v2.7.0)
+Measured through the real chain at 1x and 4x: switching it on in the linear region (Clean and Tanh,
+drive 3, 20 mV peak) moves the level by at most 0.01 dB, and at drive 11 with 0.2 V peak it recovers
+between 5.8 dB (Hard, Tube) and 9.0 dB (Foldback) of the compression. Peak-to-peak ripple after
+200 ms is below 0.02 dB.
 
-Context menu -> **Bypass** -> `Off` / `On`. Bypassed, the output is the input times the master
-**Output** volume: no crossover, no curve, no DC blocker and no latency-compensation delay, so the
-module is truly transparent at its boundary while the DSP keeps running. The transition is a ~5 ms
-crossfade, so toggling it does not click, and the saturation lights keep updating. Saved in the patch
-as `"bypass": true|false`; old patches load with it off.
+**v2.7.1 fixed a wrong law.** v2.7.0 compared the band *before* the drive with the output *after*
+the curve, two different scales. The gain then came out as roughly `1 / drive` in the linear region,
+so it cancelled the drive control (Clean was a constant +11 dB) and clamped at 4x with hot signals.
+If you used Auto Makeup in 2.7.0 and it seemed to kill the saturation, that was the bug.
+
+## Bypass (v2.7.1)
+
+There is **no bypass entry in the context menu** any more. Use Rack's own bypass, **Ctrl+E**, which
+the module declares through `configBypass()`: while bypassed, Rack routes each input straight to the
+corresponding output and stops calling the module, so the module's own DSP, the Output level and the
+saturation lights do not take part. It is a hard switch, not a crossfade, so it can click on loud
+material. A patch saved by 2.7.0 with `"bypass": true` loads normally and simply ignores that key.
 
 ## Context menu
 
@@ -175,15 +188,14 @@ Right-click the module:
 - **Crossover** -> `Legacy` / `LR4`. See *Crossover* above. Undoable (*Undo change crossover*).
 - **ADAA** -> `Off` / `On`. See *Anti-aliasing* above. Undoable (*Undo toggle adaa*).
 - **Auto Makeup** -> `Off` / `On`. See *Makeup and Auto Makeup* above. Undoable (*Undo toggle auto makeup*).
-- **Bypass** -> `Off` / `On`. See *Bypass* above. Undoable (*Undo toggle bypass*).
-- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.7.0` - sample rate, oversampling
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.7.1` - sample rate, oversampling
   factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 The saturation lights keep metering each band **before** the solo, so a muted band still shows its
 saturation level.
 
 **Undo (v2.4.0, extended in v2.5.0, v2.6.0 and v2.7.0).** The context-menu actions — curve change, the linked change (one
-single entry for the three bands), **Copy Curve** (also one single entry), **Solo**, **Oversampling**, **Crossover**, **ADAA**, **Auto Makeup**, **Bypass**
+single entry for the three bands), **Copy Curve** (also one single entry), **Solo**, **Oversampling**, **Crossover**, **ADAA**, **Auto Makeup**
 and the **Link curves** toggle — are undoable with **Ctrl+Z** and redoable with **Ctrl+Shift+Z**,
 using Rack's standard history (e.g. *Undo change curve*, *Undo change curves*, *Undo toggle link
 curves*). Re-selecting an already active option creates no history entry, and loading a patch is never

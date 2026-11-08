@@ -130,17 +130,6 @@ struct Saturator : Module {
       activar el modo no necesite primado. Solo hilo de audio. */
   coaldynamics::AutoMakeup autoMakeupDsp;
 
-  /** Bypass (G3): 0 = Off (default, comportamiento v2.6.0), 1 = On. Selector
-      puro, sin pending ni exchange: no reconstruye coeficientes ni resetea
-      estado (en bypass el DSP sigue corriendo; solo cambia el crossfade de
-      salida). Lo escriben la UI y el JSON; el audio lo lee UNA vez por muestra
-      base con memory_order_relaxed. */
-  std::atomic<int> bypass{0};
-  /** Rampa lineal del crossfade de bypass (0 = solo entrada, 1 = ruta v2.6.0).
-      ~5 ms: step = sampleTime * 200, mismo patron que soloGain. Solo hilo de
-      audio; arranca en 1 = ruta v2.6.0 sin fade. */
-  float bypassGain = 1.f;
-
   /** Historial ADAA1: u_prev[banda][canal], con banda 0 = Low, 1 = Mid,
       2 = High. Solo hilo de audio. Solo se actualiza con curvas que
       soportan ADAA. */
@@ -234,10 +223,6 @@ struct Saturator : Module {
 
   /** Llamado desde UI o JSON: valida 0/1 y publica el selector. */
   void setAutoMakeup(int on);
-
-  /** Llamado desde UI o JSON: valida 0/1 y publica el selector de bypass.
-      No toca bypassGain: la rampa la mueve process() en el hilo de audio. */
-  void setBypass(int on);
 
   void onReset() override;
 
