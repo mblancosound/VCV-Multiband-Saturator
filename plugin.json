@@ -1,10 +1,11 @@
 {
 	"slug": "Coal_Dynamics",
 	"brand": "Coal Dynamics",
-	"version": "2.6.0",
+	"version": "2.6.1",
 	"license": "MIT",
 	"author": "Manuel Blanco",
-	"name": "Multiband Saturator",
+	"name": "Anthracite",
+	"sourceUrl": "https://github.com/mblancosound/VCV-Multiband-Saturator",
 	"modules": [
 		{
 			"slug": "Multiband_Saturator",
