@@ -1,7 +1,7 @@
 # VCV-Multiband-Saturator
 
 [![Build](https://github.com/mblancosound/VCV-Multiband-Saturator/actions/workflows/build.yml/badge.svg)](https://github.com/mblancosound/VCV-Multiband-Saturator/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/mblancosound/VCV-Multiband-Saturator)](https://github.com/mblancosound/VCV-Multiband-Saturator/releases/latest)
+[![Version](https://img.shields.io/github/v/tag/mblancosound/VCV-Multiband-Saturator)](https://github.com/mblancosound/VCV-Multiband-Saturator/tags)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
 **Anthracite** — three-band saturator module for [VCV Rack 2](https://vcvrack.com/) by **Coal Dynamics** (Manuel Blanco).
@@ -203,10 +203,17 @@ recorded as an undoable action.
 
 ## Install
 
-Download the `.vcvplugin` for your platform from
-[Releases](https://github.com/mblancosound/VCV-Multiband-Saturator/releases/latest) — `win-x64`,
-`lin-x64`, `mac-x64`, `mac-arm64` — and install it from Rack via **Help > Install plugin file...**.
-Restart Rack afterwards.
+Two ways in:
+
+- **From the VCV Library** (recommended once it is listed): install it from Rack's
+  **Library** menu and let Rack handle updates.
+- **From source**: build the plugin for your platform (see *Build* below), then run
+  `make dist` and install `dist/Coal_Dynamics-<version>-<platform>.vcvplugin` from Rack via
+  **Help > Install plugin file...**. Restart Rack afterwards.
+
+Nothing is attached to the GitHub tags: they are source snapshots, not download pages. The CI
+workflow builds the four platforms on every push (`win-x64`, `lin-x64`, `mac-x64`, `mac-arm64`)
+and keeps them as workflow artefacts for a limited time, so a local build is the durable option.
 
 ## Build
 
