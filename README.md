@@ -4,14 +4,15 @@
 [![Release](https://img.shields.io/github/v/release/mblancosound/VCV-Multiband-Saturator)](https://github.com/mblancosound/VCV-Multiband-Saturator/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-Multiband Saturator plugin for [VCV Rack 2](https://vcvrack.com/) by **Coal Dynamics** (Manuel Blanco).
+**Anthracite** — Multiband Saturator plugin for [VCV Rack 2](https://vcvrack.com/) by **Coal Dynamics** (Manuel Blanco).
 
 Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, CV inputs, and stereo in/out.
 
-- Plugin slug: `Coal_Dynamics`
+- Plugin: `Anthracite` (slug `Coal_Dynamics`, brand Coal Dynamics)
 - Module: `Multiband Saturator` (`Multiband_Saturator`)
 - Version: `2.7.0`
 - License: MIT (see `LICENSE.txt`)
+- Source: https://github.com/mblancosound/VCV-Multiband-Saturator
 
 ## Features
 
