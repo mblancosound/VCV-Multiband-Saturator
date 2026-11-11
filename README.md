@@ -10,7 +10,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin: `Coal Dynamics` (slug `Coal_Dynamics`)
 - Module: `Anthracite` (`Anthracite`)
-- Version: `2.7.1`
+- Version: `2.8.2`
 - License: MIT (see `LICENSE.txt`)
 - Source: https://github.com/mblancosound/VCV-Multiband-Saturator
 
@@ -24,7 +24,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 - Crossover split selectable: `Legacy` (v2.5.0, default) or `LR4` perfect-reconstruction 4th-order Linkwitz-Riley (v2.6.0)
 - ADAA (first-order anti-derivative anti-aliasing) on Tanh/Cubic/Arctan/Hard/Foldback/Sine Fold (v2.6.0, default off)
 - Per-band Drive CV with its own attenuverter: +/-10 V spans the whole knob (v2.7.0)
-- Per-band Makeup (0..4x) plus automatic per-band gain compensation (v2.7.0, default off)
+- Per-band Makeup (0 dB..+12 dB, boost-only, v2.8.2) plus automatic per-band gain compensation (v2.7.0, default off)
 - No module-level bypass: use Rack's own **Ctrl+E**, which routes input to output (v2.7.1)
 - Read-only status info in the menu (sample rate, oversampling factor, latency, version)
 - Master Output volume + Mix (dry/wet)
@@ -135,8 +135,8 @@ patches are unaffected. No new key is stored in the patch: the attenuverters are
 
 ## Makeup and Auto Makeup (v2.7.0, law fixed in v2.7.1)
 
-Each band has a **Makeup** gain from 0 to 4x (default 1.0 = no change), applied after the curve and
-before pan and volume.
+Each band has a **Makeup** boost from 0 dB to +12 dB (default 0 dB = no change), applied after the
+curve and before pan and volume. It is boost-only; use the band Volume knob to attenuate.
 
 **Auto Makeup** (context menu, default `Off`) replaces the manual makeup with a per-band gain
 compensation. The detector compares the level that **enters** the non-linearity - the band after the
@@ -188,7 +188,7 @@ Right-click the module:
 - **Crossover** -> `Legacy` / `LR4`. See *Crossover* above. Undoable (*Undo change crossover*).
 - **ADAA** -> `Off` / `On`. See *Anti-aliasing* above. Undoable (*Undo toggle adaa*).
 - **Auto Makeup** -> `Off` / `On`. See *Makeup and Auto Makeup* above. Undoable (*Undo toggle auto makeup*).
-- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.7.1` - sample rate, oversampling
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.8.2` - sample rate, oversampling
   factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 The saturation lights keep metering each band **before** the solo, so a muted band still shows its
@@ -224,7 +224,7 @@ Windows, Xcode/Clang on macOS). CI builds the four platforms with these same com
 export RACK_DIR=/path/to/Rack-SDK-2.6.6   # Makefile default: /c/Rack-SDK2.6.6
 make        # ./plugin.dll (or .so / .dylib)
 make dist   # dist/Coal_Dynamics-<version>-<platform>.vcvplugin
-make test   # offline DSP harness (12 cases; run it from the repo root)
+make test   # offline DSP harness (17 cases; run it from the repo root)
 ```
 
 Windows + MSYS2 timings: clean 7.2 s, one file 2.7 s, no-op 0.9 s, `make dist` 1.6 s.
@@ -240,6 +240,7 @@ src/
   SaturatorWidget.cpp          # UI + context menus (oversampling, curves, solo, copy, info)
   Oversampling.hpp             # 1x/2x/4x/8x stages (header-only)
   Curves.hpp                   # 9 per-band saturation curves (header-only)
+  AutoMakeup.hpp               # per-band auto-makeup detector (header-only)
 res/               # panel + component SVGs
 LICENSE.txt
 ```
