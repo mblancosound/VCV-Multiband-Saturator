@@ -105,7 +105,7 @@ Saturator::Saturator() {
 /** Disena los crossovers a sampleRate * oversampling. Unico punto que toca
 los coeficientes de los biquads; la topologia depende de `crossover`. */
 void Saturator::updateFilterFrequencies() {
-  const float fs = sampleRate * (float) oversampling;
+  const float fs = sampleRate * (float)oversampling;
 
   if (crossover == 1) {
     // LR4 (specs/v2.6_quality_spec.md 3.1): Low = LP4 y High = HP4 como
@@ -192,7 +192,7 @@ void Saturator::applyOversampling(int factor) {
   highFilterR.reset();
 
   updateFilterFrequencies();
-  resetAdaaState();   // historial en voltios no vale tras cambiar fsN
+  resetAdaaState(); // historial en voltios no vale tras cambiar fsN
 }
 
 /** Llamado desde UI o JSON: valida 0 (LEGACY) / 1 (LR4). Igual que
@@ -370,7 +370,7 @@ json_t *Saturator::dataToJson() {
 void Saturator::dataFromJson(json_t *rootJ) {
   json_t *osJ = json_object_get(rootJ, "oversampling");
   if (osJ) {
-    int factor = (int) json_integer_value(osJ);
+    int factor = (int)json_integer_value(osJ);
     if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
       factor = 1;
     setOversampling(factor);
@@ -400,9 +400,9 @@ void Saturator::dataFromJson(json_t *rootJ) {
   for (int i = 0; i < 3; i++) {
     int id = coaldynamics::TANH;
     if (curvesJ && json_is_array(curvesJ)) {
-      json_t *idJ = json_array_get(curvesJ, (size_t) i);
+      json_t *idJ = json_array_get(curvesJ, (size_t)i);
       if (idJ && json_is_integer(idJ))
-        id = (int) json_integer_value(idJ);
+        id = (int)json_integer_value(idJ);
     }
     if (id < 0)
       id = 0;
@@ -415,7 +415,7 @@ void Saturator::dataFromJson(json_t *rootJ) {
   json_t *soloJ = json_object_get(rootJ, "solo");
   int soloValue = -1;
   if (soloJ && json_is_integer(soloJ))
-    soloValue = (int) json_integer_value(soloJ);
+    soloValue = (int)json_integer_value(soloJ);
   if (soloValue < -1 || soloValue > 2)
     soloValue = -1;
   setSolo(soloValue);
@@ -502,7 +502,8 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
     if (ADAA) {
       // Resync: uPrev = u en la PRIMERA submuestra del bloque, por banda y
       // canal. Tras el resync applyCurveAdaa ve du = 0 -> fallback -> f(u).
-      // Solo ocurre cuando lo marca process() (cambio de curva) o resetAdaaState().
+      // Solo ocurre cuando lo marca process() (cambio de curva) o
+      // resetAdaaState().
       if (i == 0) {
         for (int b = 0; b < 3; b++) {
           if (adaaResync[b]) {
@@ -513,8 +514,10 @@ void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
         }
       }
       for (int b = 0; b < 3; b++) {
-        wet[b][0] = coaldynamics::applyCurveAdaa(u[b][0], uPrev[b][0], curve[b]);
-        wet[b][1] = coaldynamics::applyCurveAdaa(u[b][1], uPrev[b][1], curve[b]);
+        wet[b][0] =
+            coaldynamics::applyCurveAdaa(u[b][0], uPrev[b][0], curve[b]);
+        wet[b][1] =
+            coaldynamics::applyCurveAdaa(u[b][1], uPrev[b][1], curve[b]);
       }
     } else {
       // Ruta v2.5.0 exacta: sin historial y sin rama.
@@ -589,8 +592,7 @@ void Saturator::process(const ProcessArgs &args) {
     applyCrossover(requestedCrossover);
 
   // ADAA (v2.6.0): mismo patron pending + exchange que oversampling/crossover.
-  const int requestedAdaa =
-      pendingAdaa.exchange(-1, std::memory_order_relaxed);
+  const int requestedAdaa = pendingAdaa.exchange(-1, std::memory_order_relaxed);
   if (requestedAdaa != -1)
     applyAdaa(requestedAdaa);
   float inL = inputs[IN_L].getVoltage();
@@ -603,9 +605,9 @@ void Saturator::process(const ProcessArgs &args) {
   p.driveMid = coaldynamics::driveFromCv(params[MID_DRIVE].getValue(),
                                          inputs[MID_DRIVE_INPUT].getVoltage(),
                                          params[MID_DRIVE_CV].getValue());
-  p.driveHigh = coaldynamics::driveFromCv(
-      params[HIGH_DRIVE].getValue(), inputs[HIGH_DRIVE_INPUT].getVoltage(),
-      params[HIGH_DRIVE_CV].getValue());
+  p.driveHigh = coaldynamics::driveFromCv(params[HIGH_DRIVE].getValue(),
+                                          inputs[HIGH_DRIVE_INPUT].getVoltage(),
+                                          params[HIGH_DRIVE_CV].getValue());
   p.curveLow = curves[0].load(std::memory_order_relaxed);
   p.curveMid = curves[1].load(std::memory_order_relaxed);
   p.curveHigh = curves[2].load(std::memory_order_relaxed);
@@ -684,18 +686,18 @@ void Saturator::process(const ProcessArgs &args) {
   float wetL = 0.f;
   float wetR = 0.f;
   switch (oversampling) {
-    case 1:
-      processBlock(stage1, p, inL, inR, wetL, wetR);
-      break;
-    case 2:
-      processBlock(stage2, p, inL, inR, wetL, wetR);
-      break;
-    case 8:
-      processBlock(stage8, p, inL, inR, wetL, wetR);
-      break;
-    default:
-      processBlock(stage4, p, inL, inR, wetL, wetR);
-      break;
+  case 1:
+    processBlock(stage1, p, inL, inR, wetL, wetR);
+    break;
+  case 2:
+    processBlock(stage2, p, inL, inR, wetL, wetR);
+    break;
+  case 8:
+    processBlock(stage8, p, inL, inR, wetL, wetR);
+    break;
+  default:
+    processBlock(stage4, p, inL, inR, wetL, wetR);
+    break;
   }
 
   // DC-blocker de 15 Hz, solo en el camino wet: y = x - x1 + R*y1.
