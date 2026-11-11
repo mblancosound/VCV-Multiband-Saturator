@@ -10,15 +10,15 @@ Saturator::Saturator() {
 
   configParam(LOW_DRIVE, 0.f, 1.f, 0.f, "Low Drive", "%", 0.f, 100.f);
   configParam<PanParamQuantity>(LOW_PAN, -1.f, 1.f, 0.f, "Low Pan", "");
-  configParam(LOW_VOL, 0.f, 1.f, 0.8f, "Low Vol", "%", 0.f, 100.f);
+  configParam(LOW_VOL, 0.f, 1.f, 1.f, "Low Vol", "%", 0.f, 100.f);
 
   configParam(MID_DRIVE, 0.f, 1.f, 0.f, "Mid Drive", "%", 0.f, 100.f);
   configParam<PanParamQuantity>(MID_PAN, -1.f, 1.f, 0.f, "Mid Pan", "");
-  configParam(MID_VOL, 0.f, 1.f, 0.8f, "Mid Vol", "%", 0.f, 100.f);
+  configParam(MID_VOL, 0.f, 1.f, 1.f, "Mid Vol", "%", 0.f, 100.f);
 
   configParam(HIGH_DRIVE, 0.f, 1.f, 0.f, "High Drive", "%", 0.f, 100.f);
   configParam<PanParamQuantity>(HIGH_PAN, -1.f, 1.f, 0.f, "High Pan", "");
-  configParam(HIGH_VOL, 0.f, 1.f, 0.8f, "High Vol", "%", 0.f, 100.f);
+  configParam(HIGH_VOL, 0.f, 1.f, 1.f, "High Vol", "%", 0.f, 100.f);
 
   configParam(OUTPUT_VOL, 0.f, 1.f, 1.f, "Output", "%", 0.f, 100.f);
   configParam(MIX_PARAM, 0.f, 1.f, 1.f, "Mix", "%", 0.f, 100.f);
@@ -33,10 +33,11 @@ Saturator::Saturator() {
   configParam(MID_DRIVE_CV, -1.f, 1.f, 0.f, "Mid Drive CV", "%", 0.f, 100.f);
   configParam(HIGH_DRIVE_CV, -1.f, 1.f, 0.f, "High Drive CV", "%", 0.f, 100.f);
 
-  // Makeup manual por banda (G2): 1.0 = 100 % = 0 dB; 4.0 = 400 % = +12.04 dB.
-  configParam(LOW_MAKEUP, 0.f, 4.f, 1.f, "Low Makeup", "%", 0.f, 100.f);
-  configParam(MID_MAKEUP, 0.f, 4.f, 1.f, "Mid Makeup", "%", 0.f, 100.f);
-  configParam(HIGH_MAKEUP, 0.f, 4.f, 1.f, "High Makeup", "%", 0.f, 100.f);
+  // Makeup manual por banda (G2): 1.0 = 0 dB; 4.0 = +12.04 dB. La ley interna
+  // sigue siendo lineal 0..4; solo el display del parametro se muestra en dB.
+  configParam<MakeupParamQuantity>(LOW_MAKEUP, 0.f, 4.f, 1.f, "Low Makeup", " dB");
+  configParam<MakeupParamQuantity>(MID_MAKEUP, 0.f, 4.f, 1.f, "Mid Makeup", " dB");
+  configParam<MakeupParamQuantity>(HIGH_MAKEUP, 0.f, 4.f, 1.f, "High Makeup", " dB");
 
   getParamQuantity(LOW_DRIVE)->randomizeEnabled = false;
   getParamQuantity(LOW_PAN)->randomizeEnabled = false;

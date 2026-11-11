@@ -27,6 +27,22 @@ struct PanParamQuantity : ParamQuantity {
   }
 };
 
+/** Formato de los knobs MAKEUP: ganancia lineal interna 0..4 mostrada en dB.
+Sobreescribe solo el string de display; el valor, rango y default no cambian,
+asi que los patches guardados conservan la misma ganancia.
+*/
+struct MakeupParamQuantity : ParamQuantity {
+  std::string getDisplayValueString() override {
+    float v = getValue();
+    if (v <= 1e-6f)
+      return "-inf";
+    float db = 20.f * std::log10(v);
+    if (db > -0.005f && db < 0.005f)
+      return "0.00";
+    return string::f("%+.2f", db);
+  }
+};
+
 struct Saturator;
 
 struct SaturatorWidget : ModuleWidget {
