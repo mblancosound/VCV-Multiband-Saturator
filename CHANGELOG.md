@@ -65,10 +65,3 @@ VCV Library release, **2.6.2**. Newest first.
   per-band gain compensation with 10 ms attack / 100 ms release, frozen
   below -60 dBFS, capped at 4x (+12 dB).
 - **Bypass** with a 5 ms crossfade (replaced by Rack's Ctrl+E in 2.7.1).
-
-## Repository / CI
-
-- CI builds `win-x64`, `lin-x64`, `mac-x64` and `mac-arm64` and uploads the
-  `.vcvplugin` files as workflow artifacts.
-- No GitHub Releases are created: tags are source snapshots. Install from
-  the VCV Library or build locally with `make dist`.
