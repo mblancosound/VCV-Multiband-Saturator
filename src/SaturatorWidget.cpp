@@ -404,7 +404,7 @@ void pushAutoMakeupHistory(Saturator *saturator, int mode) {
 SaturatorWidget::SaturatorWidget(Saturator *module) {
   setModule(module);
 
-  box.size = Vec(270, 380);
+  box.size = Vec(360, 380);
 
   setPanel(createPanel(asset::plugin(pluginInstance, "res/Saturator.svg")));
 
@@ -419,99 +419,99 @@ SaturatorWidget::SaturatorWidget(Saturator *module) {
 
   // Drives (Knobs de 48px)
   addParam(
-      createParamCentered<Knob48>(Vec(67.5, 84), module, Saturator::LOW_DRIVE));
+      createParamCentered<Knob48>(Vec(60, 84), module, Saturator::LOW_DRIVE));
   addParam(
-      createParamCentered<Knob48>(Vec(135, 84), module, Saturator::MID_DRIVE));
-  addParam(createParamCentered<Knob48>(Vec(202.5, 84), module,
+      createParamCentered<Knob48>(Vec(180, 84), module, Saturator::MID_DRIVE));
+  addParam(createParamCentered<Knob48>(Vec(300, 84), module,
                                        Saturator::HIGH_DRIVE));
 
   // Pans (Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(52.5, 127.4), module,
+  addParam(createParamCentered<Knob20>(Vec(30, 127.4), module,
                                        Saturator::LOW_PAN));
   addParam(
-      createParamCentered<Knob20>(Vec(120, 127.4), module, Saturator::MID_PAN));
-  addParam(createParamCentered<Knob20>(Vec(187.5, 127.4), module,
+      createParamCentered<Knob20>(Vec(150, 127.4), module, Saturator::MID_PAN));
+  addParam(createParamCentered<Knob20>(Vec(270, 127.4), module,
                                        Saturator::HIGH_PAN));
 
   // Vols (Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(82.5, 147.4), module,
+  addParam(createParamCentered<Knob20>(Vec(60, 127.4), module,
                                        Saturator::LOW_VOL));
   addParam(
-      createParamCentered<Knob20>(Vec(150, 147.4), module, Saturator::MID_VOL));
-  addParam(createParamCentered<Knob20>(Vec(217.5, 147.4), module,
+      createParamCentered<Knob20>(Vec(180, 127.4), module, Saturator::MID_VOL));
+  addParam(createParamCentered<Knob20>(Vec(300, 127.4), module,
                                        Saturator::HIGH_VOL));
 
-  // Makeup por banda (G2): fila propia 7.6 px por debajo de los Vol, para no
-  // tocar los knobs de Pan (ver contrato v2.7 4.5). Sin cambios en el SVG.
-  addParam(createParamCentered<Knob20>(Vec(52.5, 155.0), module,
+  // Makeup por banda (G2): tercera columna de la fila principal, a +30 px
+  // del centro de banda. Solo cambia la geometria del panel; el DSP no se toca.
+  addParam(createParamCentered<Knob20>(Vec(90, 127.4), module,
                                        Saturator::LOW_MAKEUP));
-  addParam(createParamCentered<Knob20>(Vec(120, 155.0), module,
+  addParam(createParamCentered<Knob20>(Vec(210, 127.4), module,
                                        Saturator::MID_MAKEUP));
-  addParam(createParamCentered<Knob20>(Vec(187.5, 155.0), module,
+  addParam(createParamCentered<Knob20>(Vec(330, 127.4), module,
                                        Saturator::HIGH_MAKEUP));
 
   // Output & Mix (Knobs de 48px)
-  addParam(createParamCentered<Knob48>(Vec(101.3, 201.3), module,
+  addParam(createParamCentered<Knob48>(Vec(120, 201.3), module,
                                        Saturator::OUTPUT_VOL));
-  addParam(createParamCentered<Knob48>(Vec(168.8, 201.3), module,
+  addParam(createParamCentered<Knob48>(Vec(240, 201.3), module,
                                        Saturator::MIX_PARAM));
 
   // CV Pans (Atenuadores CV - Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(52.6, 299.6), module,
+  addParam(createParamCentered<Knob20>(Vec(30, 299.6), module,
                                        Saturator::LOW_PAN_CV));
-  addParam(createParamCentered<Knob20>(Vec(120.1, 299.6), module,
+  addParam(createParamCentered<Knob20>(Vec(150, 299.6), module,
                                        Saturator::MID_PAN_CV));
-  addParam(createParamCentered<Knob20>(Vec(187.6, 299.6), module,
+  addParam(createParamCentered<Knob20>(Vec(270, 299.6), module,
                                        Saturator::HIGH_PAN_CV));
 
   // CV Vols (Atenuadores CV - Knobs de 20px)
-  addParam(createParamCentered<Knob20>(Vec(82.4, 299.6), module,
+  addParam(createParamCentered<Knob20>(Vec(90, 299.6), module,
                                        Saturator::LOW_VOL_CV));
-  addParam(createParamCentered<Knob20>(Vec(149.9, 299.6), module,
+  addParam(createParamCentered<Knob20>(Vec(210, 299.6), module,
                                        Saturator::MID_VOL_CV));
-  addParam(createParamCentered<Knob20>(Vec(217.4, 299.6), module,
+  addParam(createParamCentered<Knob20>(Vec(330, 299.6), module,
                                        Saturator::HIGH_VOL_CV));
 
   // Atenuadores CV de Drive por banda (G1)
-  addParam(createParamCentered<Knob20>(Vec(67.5, 325), module,
+  addParam(createParamCentered<Knob20>(Vec(60, 299.6), module,
                                        Saturator::LOW_DRIVE_CV));
-  addParam(createParamCentered<Knob20>(Vec(135, 325), module,
+  addParam(createParamCentered<Knob20>(Vec(180, 299.6), module,
                                        Saturator::MID_DRIVE_CV));
-  addParam(createParamCentered<Knob20>(Vec(202.5, 325), module,
+  addParam(createParamCentered<Knob20>(Vec(300, 299.6), module,
                                        Saturator::HIGH_DRIVE_CV));
 
   // Entradas de Audio
-  addInput(createInputCentered<CustomInputPort>(Vec(47.3, 352.6), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(45, 352.6), module,
                                                 Saturator::IN_L));
-  addInput(createInputCentered<CustomInputPort>(Vec(87.7, 352.6), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(90, 352.6), module,
                                                 Saturator::IN_R));
 
   // Salidas de Audio
-  addOutput(createOutputCentered<CustomOutputPort>(Vec(182.3, 352.6), module,
+  addOutput(createOutputCentered<CustomOutputPort>(Vec(270, 352.6), module,
                                                    Saturator::OUT_L));
-  addOutput(createOutputCentered<CustomOutputPort>(Vec(222.8, 352.6), module,
+  addOutput(createOutputCentered<CustomOutputPort>(Vec(315, 352.6), module,
                                                    Saturator::OUT_R));
 
   // Entradas CV
-  addInput(createInputCentered<CustomInputPort>(Vec(52.6, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(30, 273), module,
                                                 Saturator::LOW_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(82.4, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(90, 273), module,
                                                 Saturator::LOW_VOL_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(119.7, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(150, 273), module,
                                                 Saturator::MID_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(149.5, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(210, 273), module,
                                                 Saturator::MID_VOL_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(187.6, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(270, 273), module,
                                                 Saturator::HIGH_PAN_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(217.4, 273), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(330, 273), module,
                                                 Saturator::HIGH_VOL_INPUT));
 
   // Entradas CV de Drive por banda (G1)
-  addInput(createInputCentered<CustomInputPort>(Vec(67.5, 240), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(60, 273), module,
                                                 Saturator::LOW_DRIVE_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(135, 240), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(180, 273), module,
                                                 Saturator::MID_DRIVE_INPUT));
-  addInput(createInputCentered<CustomInputPort>(Vec(202.5, 240), module,
+  addInput(createInputCentered<CustomInputPort>(Vec(300, 273), module,
                                                 Saturator::HIGH_DRIVE_INPUT));
 }
 
