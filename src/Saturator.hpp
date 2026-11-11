@@ -27,9 +27,9 @@ struct PanParamQuantity : ParamQuantity {
   }
 };
 
-/** Formato de los knobs MAKEUP: ganancia lineal interna 0..4 mostrada en dB.
-Sobreescribe solo el string de display; el valor, rango y default no cambian,
-asi que los patches guardados conservan la misma ganancia.
+/** Formato de los knobs MAKEUP: ganancia lineal interna 1..3.981 mostrada en dB
+(0..+12 dB). Sobreescribe solo el string de display; el DSP sigue multiplicando
+por el valor lineal.
 */
 struct MakeupParamQuantity : ParamQuantity {
   std::string getDisplayValueString() override {

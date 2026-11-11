@@ -33,11 +33,11 @@ Saturator::Saturator() {
   configParam(MID_DRIVE_CV, -1.f, 1.f, 0.f, "Mid Drive CV", "%", 0.f, 100.f);
   configParam(HIGH_DRIVE_CV, -1.f, 1.f, 0.f, "High Drive CV", "%", 0.f, 100.f);
 
-  // Makeup manual por banda (G2): 1.0 = 0 dB; 4.0 = +12.04 dB. La ley interna
-  // sigue siendo lineal 0..4; solo el display del parametro se muestra en dB.
-  configParam<MakeupParamQuantity>(LOW_MAKEUP, 0.f, 4.f, 1.f, "Low Makeup", " dB");
-  configParam<MakeupParamQuantity>(MID_MAKEUP, 0.f, 4.f, 1.f, "Mid Makeup", " dB");
-  configParam<MakeupParamQuantity>(HIGH_MAKEUP, 0.f, 4.f, 1.f, "High Makeup", " dB");
+  // Makeup manual por banda (G2): rango 1.0..3.981 = 0..+12.00 dB. La ley
+  // interna sigue siendo lineal; solo el display del parametro se muestra en dB.
+  configParam<MakeupParamQuantity>(LOW_MAKEUP, 1.f, 3.9810717f, 1.f, "Low Makeup", " dB");
+  configParam<MakeupParamQuantity>(MID_MAKEUP, 1.f, 3.9810717f, 1.f, "Mid Makeup", " dB");
+  configParam<MakeupParamQuantity>(HIGH_MAKEUP, 1.f, 3.9810717f, 1.f, "High Makeup", " dB");
 
   getParamQuantity(LOW_DRIVE)->randomizeEnabled = false;
   getParamQuantity(LOW_PAN)->randomizeEnabled = false;
