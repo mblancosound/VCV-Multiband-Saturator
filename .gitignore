@@ -33,3 +33,7 @@ test/_probe*
 
 # Log de instalacion de toolchain (local, no se versiona)
 InstallationLog.txt
+
+# Tooling local de agentes y notas internas del harness (no forman parte del plugin)
+.agents/
+docs/procedures/

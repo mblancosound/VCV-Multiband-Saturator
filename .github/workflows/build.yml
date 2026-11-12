@@ -76,10 +76,13 @@ jobs:
           cd /home/build/rack-plugin-toolchain
           make plugin-build-${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
+        # Solo se publican artefactos para tags de release; main y PR solo validan.
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: ${{ matrix.platform }}
           path: /home/build/rack-plugin-toolchain/plugin-build/*.vcvplugin
           if-no-files-found: error
+          retention-days: 30
 
   build-mac:
     name: Build mac-${{ matrix.arch }}
@@ -101,7 +104,10 @@ jobs:
           CROSS_COMPILE: ${{ matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'arm64-apple-darwin' }}
         run: make -j4 dist
       - uses: actions/upload-artifact@v4
+        # Solo se publican artefactos para tags de release; main y PR solo validan.
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: mac-${{ matrix.arch }}
           path: dist/*.vcvplugin
           if-no-files-found: error
+          retention-days: 30

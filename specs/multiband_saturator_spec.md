@@ -70,7 +70,7 @@ cd <repo> && RACK_DIR=/c/Rack-SDK2.6.6 make          # o: make dist
 | Warnings `-Wall -Wextra` | **0** (build limpio verificado) |
 
 Artefactos de verificación reutilizables (en temp, fuera del repo):
-`C:\Users\manub\AppData\Local\Temp\opencode\mbs-build\` → `overlay.svg`, `crop_cv.svg`, `crop_audio.svg` (+ PNG ya renderizados) para el chequeo panel↔código.
+`%TEMP%\mbs-build\` → `overlay.svg`, `crop_cv.svg`, `crop_audio.svg` (+ PNG ya renderizados) para el chequeo panel↔código.
 
 ---
 
@@ -129,7 +129,7 @@ Rack 2 usa **origen arriba-izquierda, `y` hacia abajo** (igual que SVG/Inkscape 
 Regla: **unidades disjuntas** para poder escribir en paralelo. Estado actual: `src/Saturator.cpp` contiene DSP **y** widget ⇒ cualquier trabajo en C++ choca.
 
 ### W0 (hecho por ARQUITECTO) — `specs/multiband_saturator_spec.md`
-Sin código. Incluidos los overlays reutilizables en `C:\Users\manub\AppData\Local\Temp\opencode\mbs-build\`.
+Sin código. Incluidos los overlays reutilizables en `%TEMP%\mbs-build\`.
 Timing: 45 min (realizado).
 
 ### W0.5 (opcional, recommended antes de paralelizar) — refactor "split TU"
