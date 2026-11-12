@@ -3,6 +3,21 @@
 All notable changes to **Anthracite** (Coal Dynamics) since the last
 VCV Library release, **2.6.2**. Newest first.
 
+## [2.8.3] - 2026-11-12
+
+### Added
+
+- User manual for the plugin and the module, submitted to the VCV Library:
+  `manual/plugin.md` and `manual/Anthracite.md` (packaged with `DISTRIBUTABLES += manual`).
+
+### Changed
+
+- Version bump to `2.8.3`; module description improved in `plugin.json`.
+
+### Notes
+
+- Documentation-only release: no DSP, parameter ID, range, default, widget or SVG changes.
+
 ## [2.8.2] - 2026-11-11
 
 ### Fixed

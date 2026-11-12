@@ -10,9 +10,10 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan and volume, 
 
 - Plugin: `Coal Dynamics` (slug `Coal_Dynamics`)
 - Module: `Anthracite` (`Anthracite`)
-- Version: `2.8.2`
+- Version: `2.8.3`
 - License: MIT (see `LICENSE.txt`)
 - Source: https://github.com/mblancosound/VCV-Multiband-Saturator
+- Manual: [manual/Anthracite.md](manual/Anthracite.md)
 
 ## Features
 
@@ -145,7 +146,7 @@ drive, `envIn` - with the level that **leaves** it, with the curve's static trim
 compression the curve is really doing: in the linear region the gain is 1.0, so turning the drive up
 still makes the band louder, which is the whole point of the drive control.
 
-The envelopes use a 10 ms attack and a 100 ms release and the gain is frozen below -60 dBFS, so
+The envelopes use a 10 ms attack and a 100 ms release and the gain is frozen below -60 dBV (1 mV), so
 silence does not pump. The gain is capped at 4x (+12 dB). Curves whose slope at the origin is not 1
 (Cubic 1.5, Tube 1.46) divide their own slope out, so their linear-region gain is about 0.67; that is
 the curve's own gain, not a compensation error. With Auto Makeup on, the manual makeup knob is
@@ -188,7 +189,7 @@ Right-click the module:
 - **Crossover** -> `Legacy` / `LR4`. See *Crossover* above. Undoable (*Undo change crossover*).
 - **ADAA** -> `Off` / `On`. See *Anti-aliasing* above. Undoable (*Undo toggle adaa*).
 - **Auto Makeup** -> `Off` / `On`. See *Makeup and Auto Makeup* above. Undoable (*Undo toggle auto makeup*).
-- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.8.2` - sample rate, oversampling
+- **Info** (read-only label): `48.0 kHz | 1x | 0 samples | v2.8.3` - sample rate, oversampling
   factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 The saturation lights keep metering each band **before** the solo, so a muted band still shows its
@@ -203,17 +204,18 @@ recorded as an undoable action.
 
 ## Install
 
-Two ways in:
+From the **VCV Library** (recommended): install **Coal Dynamics** from Rack's **Library** menu
+and let Rack handle updates.
 
-- **From the VCV Library** (recommended once it is listed): install it from Rack's
-  **Library** menu and let Rack handle updates.
-- **From source**: build the plugin for your platform (see *Build* below), then run
-  `make dist` and install `dist/Coal_Dynamics-<version>-<platform>.vcvplugin` from Rack via
-  **Help > Install plugin file...**. Restart Rack afterwards.
+From a **GitHub Release**: download the `.vcvplugin` for your platform from the
+[latest release](https://github.com/mblancosound/VCV-Multiband-Saturator/releases/latest), then
+install it from Rack via **Help > Install plugin file...**. Restart Rack afterwards.
 
-Nothing is attached to the GitHub tags: they are source snapshots, not download pages. The CI
-workflow builds the four platforms on every push (`win-x64`, `lin-x64`, `mac-x64`, `mac-arm64`)
-and keeps them as workflow artefacts for a limited time, so a local build is the durable option.
+The full user documentation lives in [`manual/Anthracite.md`](manual/Anthracite.md).
+
+GitHub Releases include the four platform packages (`.vcvplugin`); the Git tags remain source
+snapshots. The CI workflow validates every push and uploads artifacts only for release tags.
+See *Build* below to compile from source.
 
 ## Build
 
@@ -242,6 +244,7 @@ src/
   Curves.hpp                   # 9 per-band saturation curves (header-only)
   AutoMakeup.hpp               # per-band auto-makeup detector (header-only)
 res/               # panel + component SVGs
+manual/            # user manual (VCV Library)
 LICENSE.txt
 ```
 

@@ -10,6 +10,7 @@ RACK_DIR ?= /c/Rack-SDK2.6.6
 SOURCES += $(wildcard src/*.cpp)
 SOURCES += $(wildcard src/*.c)
 DISTRIBUTABLES += res
+DISTRIBUTABLES += manual
 
 # Arnes offline v2.6 (specs/v2.6_test_harness_spec.md seccion 10).
 # Solo delega en test/Makefile: no toca plugin.mk ni requiere jq.
