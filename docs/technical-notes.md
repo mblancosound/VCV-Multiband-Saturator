@@ -23,15 +23,15 @@ asymmetric curves (Diode/Tube) at the cost of about −1.9 dB at 20 Hz.
 
 ## Crossover
 
-Right-click \u2192 **Crossover** -> `Legacy` / `LR4`. `Legacy` is the v2.5.0 split and stays bit-identical; `LR4` is a 4th-order
+Right-click → **Crossover** → `Legacy` / `LR4`. `Legacy` is the v2.5.0 split and stays bit-identical; `LR4` is a 4th-order
 Linkwitz-Riley split built from two cascaded Butterworth stages (Q = 0.707 at `fc` and at `fc*sqrt(2)`), with the Mid band
 reconstructed as `x - low - high`, so the three bands always sum back to the input.
 
-`Legacy` leaves a reconstruction notch of **−9.91 dB at 500 Hz** (three bands at unity gain, Clean curve). With `LR4` the measured deviation from the analytic response is **0.0085 dB** over 20 Hz ... 15 kHz —.
+`Legacy` leaves a reconstruction notch of **−9.91 dB at 500 Hz** (three bands at unity gain, Clean curve). With `LR4` the measured deviation from the analytic response is **0.0085 dB** over 20 Hz ... 15 kHz.
 
 ## Anti-aliasing (ADAA)
 
-Right-click \u2192 **ADAA** -> `Off` / `On`. `Off` is the v2.5.0 behaviour and stays bit-identical. `On` applies
+Right-click → **ADAA** → `Off` / `On`. `Off` is the v2.5.0 behaviour and stays bit-identical. `On` applies
 first-order anti-derivative anti-aliasing to **Tanh, Cubic, Arctan, Hard, Foldback and Sine Fold**: instead of `f(u)` the
 band outputs `(F(u) - F(u_prev)) / (u - u_prev)` with `F = integral of f`, falling back to `f(u)` when the sample-to-sample
 step is below 1e-3 V. **Clean, Tube and Diode** are not covered and always run the direct curve.
