@@ -39,7 +39,7 @@ Each band has a **Volume** knob from **0…1** (display **0…100 %**), default 
 
 ### Makeup
 
-Each band has a **Makeup** control, boost-only, from **0 dB** to **+12 dB** (linear gain **1.0…3.9810717**, default **1.0** = 0 dB), displayed in dB. It is applied after the curve and before the pan and volume.
+Each band has a **Makeup** control, boost-only, from **0 dB** to **+12 dB** (linear gain **1.0…3.981**, default **1.0** = 0 dB), displayed in dB. It is applied after the curve and before the pan and volume.
 
 ## CV inputs and attenuators
 
@@ -109,7 +109,7 @@ Per-band curve selector. Nine curves available: Clean, Tanh, Cubic, Arctan, Hard
 
 ### Info
 
-Read-only label: `48.0 kHz | 1x | 0 samples | v2.8.3` — sample rate, oversampling factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
+Read-only label: `48.0 kHz | 1x | 0 samples | v2.9.0` — sample rate, oversampling factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 ## Bypass
 
@@ -127,7 +127,7 @@ IN L/R
 
 ## Installation
 
-- **From the VCV Library** (recommended): install from Rack's **Library** menu. Version **2.8.3** is the version submitted to the VCV Library.
+- **From the VCV Library** (recommended): install from Rack's **Library** menu. Version **2.9.0** is the version submitted to the VCV Library.
 - **From a package**: download the `.vcvplugin` from the **GitHub Releases** page of the [Coal Dynamics repository](https://github.com/mblancosound/VCV-Multiband-Saturator), install it via **Help > Install plugin file...** in Rack, and restart Rack.
 
 ## Patch compatibility
@@ -136,18 +136,9 @@ IN L/R
 
 ## Gain staging
 
-- **Clean** is level-matched and does not add coloration; use it as a transparent reference.
+- **Clean** is level-matched and does not add coloration; use it as a transparent reference. It is normalized to the Tanh RMS at the 5 V reference.
 - Non-linear curves add harmonics and can change the perceived level; use **Auto Makeup** or the per-band **Makeup** knob to compensate, and use the band **Volume** knob to attenuate.
-
-## Technical notes
-
-- Clean is normalized to the Tanh RMS at the 5 V reference.
-- At 5 V inputs, Clean is within +0.5 / −0.0 / −0.0 dB of Tanh at 0 / 50 / 100 % drive; at quieter ~1 V inputs it sits 9.3–13.8 dB below the saturated curves.
 - All non-linear curves stay within ±1 dB at 50 % and 100 % drive.
-
-## Saturation curves
-
-Nine curves: Clean, Tanh, Cubic, Arctan, Hard, Foldback, Sine Fold, Tube, Diode.
 
 ## License and credits
 

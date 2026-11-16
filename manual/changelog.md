@@ -2,6 +2,21 @@
 
 All notable changes to **Anthracite** (Coal Dynamics) since the last VCV Library release, **2.6.2**. Newest first.
 
+## [2.9.0] - 2026-11-16
+
+### Added
+
+- Offline test harness now runs the real DSP chain through the extracted header-only core (`src/SaturatorDsp.hpp`), so the green tests exercise the shipped code instead of a replica.
+
+### Changed
+
+- Per-sample band gains are precomputed once (`gain = makeup * vol * min(1∓pan) * solo`), replacing five multiplications and a `std::min` per sub-sample (internal refactor).
+- README reduced to pitch, features, install and build; the detailed technical notes moved to `docs/technical-notes.md` (repository-only, not packaged).
+
+### Notes
+
+- No audible DSP change, no parameter ID, range, default, widget or SVG change.
+
 ## [2.8.3] - 2026-11-12
 
 ### Added

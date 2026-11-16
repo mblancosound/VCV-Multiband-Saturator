@@ -22,7 +22,7 @@ saturation with per-band character and drive.
 The plugin is distributed through the VCV Library. Open **Library** in Rack and install
 **Coal Dynamics**. Rack keeps the plugin updated.
 
-Version **2.8.3** of the **Coal Dynamics** plugin is the version submitted to the VCV Library.
+Version **2.9.0** of the **Coal Dynamics** plugin is the version submitted to the VCV Library.
 
 ### Manual installation
 
