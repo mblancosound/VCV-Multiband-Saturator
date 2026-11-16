@@ -88,68 +88,13 @@ Saturator::Saturator() {
 
   // Filtros disenados para la frecuencia de muestreo actual x factor de
   // sobremuestreo. onSampleRateChange() los reajusta al entrar en el engine.
-  updateFilterFrequencies();
+  core.setSampleRate(44100.f);
 
   // Curva por defecto: TANH en las tres bandas (comportamiento v2.1.0).
   for (int i = 0; i < 3; i++)
     curves[i].store(coaldynamics::TANH, std::memory_order_relaxed);
-
-  const float twoPi = 6.283185307179586f;
-  dcR = std::exp(-twoPi * 15.f / sampleRate);
-
-  // G2: coeficientes del detector a la fs base. onSampleRateChange() los
-  // reajusta al entrar en el engine, igual que dcR y los biquads.
-  autoMakeupDsp.setSampleRate(sampleRate);
 }
 
-/** Disena los crossovers a sampleRate * oversampling. Unico punto que toca
-los coeficientes de los biquads; la topologia depende de `crossover`. */
-void Saturator::updateFilterFrequencies() {
-  const float fs = sampleRate * (float)oversampling;
-
-  if (crossover == 1) {
-    // LR4 (specs/v2.6_quality_spec.md 3.1): Low = LP4 y High = HP4 como
-    // cascada de dos Butterworth de 2o orden (Q = 0.707), a fc y fc*sqrt(2).
-    // La banda Mid no usa filtro: se deriva como x - low - high en
-    // processBands(), de modo que low + mid + high reconstruye la entrada.
-    lowFilterL.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
-                             1.0f);
-    lowFilterR.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
-                             1.0f);
-    lowFilter2L.setParameters(dsp::BiquadFilter::LOWPASS, 353.55339f / fs,
-                              0.707f, 1.0f);
-    lowFilter2R.setParameters(dsp::BiquadFilter::LOWPASS, 353.55339f / fs,
-                              0.707f, 1.0f);
-
-    highFilterL.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
-                              1.0f);
-    highFilterR.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
-                              1.0f);
-    highFilter2L.setParameters(dsp::BiquadFilter::HIGHPASS, 5656.85425f / fs,
-                               0.707f, 1.0f);
-    highFilter2R.setParameters(dsp::BiquadFilter::HIGHPASS, 5656.85425f / fs,
-                               0.707f, 1.0f);
-    return;
-  }
-
-  // Lowpass
-  lowFilterL.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
-                           1.0f);
-  lowFilterR.setParameters(dsp::BiquadFilter::LOWPASS, 250.f / fs, 0.707f,
-                           1.0f);
-
-  // Bandpass
-  midFilterL.setParameters(dsp::BiquadFilter::BANDPASS, 1000.f / fs, 1.0f,
-                           1.0f);
-  midFilterR.setParameters(dsp::BiquadFilter::BANDPASS, 1000.f / fs, 1.0f,
-                           1.0f);
-
-  // Highpass
-  highFilterL.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
-                            1.0f);
-  highFilterR.setParameters(dsp::BiquadFilter::HIGHPASS, 4000.f / fs, 0.707f,
-                            1.0f);
-}
 
 /** Llamado desde UI o desde el JSON: solo registra la peticion para que el
 hilo de audio la aplique al principio de un bloque. */
@@ -169,30 +114,7 @@ void Saturator::applyOversampling(int factor) {
     return;
 
   oversampling = factor;
-
-  if (factor == 2)
-    stage2.reset();
-  else if (factor == 4)
-    stage4.reset();
-  else if (factor == 8)
-    stage8.reset();
-
-  dryDelay = (factor > 1) ? coaldynamics::OS_LATENCY : 0;
-  for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
-    dryBufferL[i] = 0.f;
-    dryBufferR[i] = 0.f;
-  }
-  dryIndex = 0;
-
-  lowFilterL.reset();
-  lowFilterR.reset();
-  midFilterL.reset();
-  midFilterR.reset();
-  highFilterL.reset();
-  highFilterR.reset();
-
-  updateFilterFrequencies();
-  resetAdaaState(); // historial en voltios no vale tras cambiar fsN
+  core.setOversampling(factor);
 }
 
 /** Llamado desde UI o JSON: valida 0 (LEGACY) / 1 (LR4). Igual que
@@ -207,26 +129,13 @@ void Saturator::setCrossover(int mode) {
 }
 
 /** Llamado desde el hilo de audio: resetea los estados de filtro y rehace los
-coeficientes para la topologia pedida. El cambio de topologia produce un click
-corto, aceptado en specs/v2.6_quality_spec.md 3.4. */
+ * coeficientes para la topologia pedida. El cambio de topologia produce un click
+ * corto, aceptado en specs/v2.6_quality_spec.md 3.4. */
 void Saturator::applyCrossover(int mode) {
   if (mode != 0 && mode != 1)
     return;
   crossover = mode;
-
-  lowFilterL.reset();
-  lowFilterR.reset();
-  lowFilter2L.reset();
-  lowFilter2R.reset();
-  midFilterL.reset();
-  midFilterR.reset();
-  highFilterL.reset();
-  highFilterR.reset();
-  highFilter2L.reset();
-  highFilter2R.reset();
-
-  updateFilterFrequencies();
-  resetAdaaState();
+  core.setCrossover(mode);
 }
 
 /** Llamado desde UI o desde el JSON: solo registra la peticion para que el
@@ -245,51 +154,13 @@ void Saturator::setAdaa(int on) {
 /** Llamado desde el hilo de audio: fija el modo y limpia el historial. */
 void Saturator::applyAdaa(int on) {
   adaa = (on != 0) ? 1 : 0;
-  resetAdaaState();
+  core.setAdaa(adaa);
 }
 
-void Saturator::resetAdaaState() {
-  for (int b = 0; b < 3; b++)
-    uPrev[b][0] = uPrev[b][1] = 0.f;
-  adaaResync[0] = adaaResync[1] = adaaResync[2] = true;
-  adaaCurveApplied[0] = adaaCurveApplied[1] = adaaCurveApplied[2] = -1;
-}
 
 void Saturator::onReset() {
-  // 1) Delegado: stage activo, dryDelay, dryBufferL/R (OS_LATENCY+1), dryIndex,
-  //    los 6 biquads de la primera etapa, updateFilterFrequencies() y el
-  //    historial ADAA (uPrev + adaaResync + adaaCurveApplied).
-  applyOversampling(oversampling);
-
-  // 2) Segunda etapa de la cascada LR4 (low/high x L/R): applyOversampling NO
-  //    los resetea y setParameters() tampoco limpia el estado (ver 0/E2).
-  lowFilter2L.reset();
-  lowFilter2R.reset();
-  highFilter2L.reset();
-  highFilter2R.reset();
-
-  // 3) DC-blocker: solo el ESTADO. dcR es un coeficiente dependiente de
-  //    sampleRate; ponerlo a 0 lo convertiria en un diferenciador (ver 0/E1).
-  dcX1L = 0.f;
-  dcX1R = 0.f;
-  dcY1L = 0.f;
-  dcY1R = 0.f;
-
-  // 4) Rampas: se asientan en su OBJETIVO, no en cero (ver 0/E3). Escribirlas
-  //    a 0 haria que inicializar el modulo arrancase con un fade de 5 ms.
-  const int soloBand = solo.load(std::memory_order_relaxed);
-  for (int b = 0; b < 3; b++)
-    soloGain[b] = (soloBand < 0 || soloBand == b) ? 1.f : 0.f;
-  dryGain = (soloBand < 0) ? 1.f : 0.f;
-
-  // 5) Medidores de saturacion: no intervienen en el audio (solo alimentan las
-  //    6 luces), pero un reset debe dejar el panel sin historia.
-  satLowMeter = 0.f;
-  satMidMeter = 0.f;
-  satHighMeter = 0.f;
-
-  // 6) Detectores de auto-gain: envolventes a 0 y gainS a 1 (G2).
-  autoMakeupDsp.reset();
+  core.soloBand = solo.load(std::memory_order_relaxed);
+  core.resetState();
 }
 
 /** Llamado desde UI o JSON: valida banda (0..2) e id (0..CURVE_COUNT-1).
@@ -319,25 +190,7 @@ void Saturator::setAutoMakeup(int on) {
 
 void Saturator::onSampleRateChange(const SampleRateChangeEvent &e) {
   sampleRate = e.sampleRate;
-
-  const float twoPi = 6.283185307179586f;
-  dcR = std::exp(-twoPi * 15.f / sampleRate);
-  dcX1L = 0.f;
-  dcX1R = 0.f;
-  dcY1L = 0.f;
-  dcY1R = 0.f;
-
-  for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
-    dryBufferL[i] = 0.f;
-    dryBufferR[i] = 0.f;
-  }
-  dryIndex = 0;
-
-  // G2: solo coeficientes. NO reset(): envIn/envOut/gainS son amplitudes y
-  // siguen siendo validas tras cambiar de sample rate.
-  autoMakeupDsp.setSampleRate(e.sampleRate);
-
-  updateFilterFrequencies();
+  core.setSampleRate(e.sampleRate);
 }
 
 json_t *Saturator::dataToJson() {
@@ -430,152 +283,6 @@ void Saturator::dataFromJson(json_t *rootJ) {
       (linkJ && json_is_boolean(linkJ)) ? json_boolean_value(linkJ) : false;
 }
 
-/** Elige topologia y ADAA una sola vez por bloque: los dos son parametros de
-plantilla, de modo que el compilador genera una version de processBands por
-combinacion y no queda ninguna rama por muestra ni por submuestra. */
-template <class Stage>
-void Saturator::processBlock(Stage &stage, const OSParams &p, float inL,
-                             float inR, float &outL, float &outR) {
-  if (crossover == 1) {
-    if (adaa == 1)
-      processBands<Stage, true, true>(stage, p, inL, inR, outL, outR);
-    else
-      processBands<Stage, true, false>(stage, p, inL, inR, outL, outR);
-  } else {
-    if (adaa == 1)
-      processBands<Stage, false, true>(stage, p, inL, inR, outL, outR);
-    else
-      processBands<Stage, false, false>(stage, p, inL, inR, outL, outR);
-  }
-}
-
-/** Procesa un bloque de Stage::FACTOR submuestras: filtros + curva + pan/vol a
-frecuencia sobremuestreada, y decimacion de la suma de bandas. */
-template <class Stage, bool LR4, bool ADAA>
-void Saturator::processBands(Stage &stage, const OSParams &p, float inL,
-                             float inR, float &outL, float &outR) {
-  const int N = Stage::FACTOR;
-  float highL[N];
-  float highR[N];
-  float wetL[N];
-  float wetR[N];
-
-  stage.upsample(inL, inR, highL, highR);
-
-  // Curva por banda, leida una vez por bloque.
-  const int curve[3] = {p.curveLow, p.curveMid, p.curveHigh};
-
-  for (int i = 0; i < N; i++) {
-    float xL = highL[i];
-    float xR = highR[i];
-
-    float lowL, lowR, midL, midR, upperL, upperR;
-    if (LR4) {
-      // Low = LP4 y High = HP4 en cascada; Mid se deriva para que
-      // low + mid + high reconstruya x (specs/v2.6_quality_spec.md 3.1).
-      // LR4 es constante de plantilla: no hay rama por muestra.
-      lowL = lowFilter2L.process(lowFilterL.process(xL));
-      lowR = lowFilter2R.process(lowFilterR.process(xR));
-      upperL = highFilter2L.process(highFilterL.process(xL));
-      upperR = highFilter2R.process(highFilterR.process(xR));
-      midL = xL - lowL - upperL;
-      midR = xR - lowR - upperR;
-    } else {
-      lowL = lowFilterL.process(xL);
-      lowR = lowFilterR.process(xR);
-      midL = midFilterL.process(xL);
-      midR = midFilterR.process(xR);
-      upperL = highFilterL.process(xL);
-      upperR = highFilterR.process(xR);
-    }
-
-    // u[banda][canal] en voltios post-curveDrive.
-    float u[3][2];
-    u[0][0] = coaldynamics::curveDrive(lowL, p.driveLow, curve[0]);
-    u[0][1] = coaldynamics::curveDrive(lowR, p.driveLow, curve[0]);
-    u[1][0] = coaldynamics::curveDrive(midL, p.driveMid, curve[1]);
-    u[1][1] = coaldynamics::curveDrive(midR, p.driveMid, curve[1]);
-    u[2][0] = coaldynamics::curveDrive(upperL, p.driveHigh, curve[2]);
-    u[2][1] = coaldynamics::curveDrive(upperR, p.driveHigh, curve[2]);
-
-    float wet[3][2];
-    if (ADAA) {
-      // Resync: uPrev = u en la PRIMERA submuestra del bloque, por banda y
-      // canal. Tras el resync applyCurveAdaa ve du = 0 -> fallback -> f(u).
-      // Solo ocurre cuando lo marca process() (cambio de curva) o
-      // resetAdaaState().
-      if (i == 0) {
-        for (int b = 0; b < 3; b++) {
-          if (adaaResync[b]) {
-            uPrev[b][0] = u[b][0];
-            uPrev[b][1] = u[b][1];
-            adaaResync[b] = false;
-          }
-        }
-      }
-      for (int b = 0; b < 3; b++) {
-        wet[b][0] =
-            coaldynamics::applyCurveAdaa(u[b][0], uPrev[b][0], curve[b]);
-        wet[b][1] =
-            coaldynamics::applyCurveAdaa(u[b][1], uPrev[b][1], curve[b]);
-      }
-    } else {
-      // Ruta v2.5.0 exacta: sin historial y sin rama.
-      for (int b = 0; b < 3; b++) {
-        wet[b][0] = coaldynamics::applyCurve(u[b][0], curve[b]);
-        wet[b][1] = coaldynamics::applyCurve(u[b][1], curve[b]);
-      }
-    }
-
-    // Ley de pan: balance lineal con corte total (G_L=min(1,1-p),
-    // G_R=min(1,1+p)); nunca gana >1
-    float lowOutL = wet[0][0] * p.makeupLow * p.volLow *
-                    std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
-    float lowOutR = wet[0][1] * p.makeupLow * p.volLow *
-                    std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
-
-    float midOutL = wet[1][0] * p.makeupMid * p.volMid *
-                    std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
-    float midOutR = wet[1][1] * p.makeupMid * p.volMid *
-                    std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
-
-    float upperOutL = wet[2][0] * p.makeupHigh * p.volHigh *
-                      std::min(1.f, 1.f - p.panHigh) * p.soloGainHigh;
-    float upperOutR = wet[2][1] * p.makeupHigh * p.volHigh *
-                      std::min(1.f, 1.f + p.panHigh) * p.soloGainHigh;
-
-    wetL[i] = lowOutL + midOutL + upperOutL;
-    wetR[i] = lowOutR + midOutR + upperOutR;
-
-    if (i == N - 1) {
-      // Medidor de la ultima submuestra, sin cambios desde v2.2: |wet - u| es
-      // cuanto ha movido la curva a la entrada ya escalada por el drive.
-      satLowMeter = std::min(std::abs(wet[0][0] - u[0][0]), 1.f);
-      satMidMeter = std::min(std::abs(wet[1][0] - u[1][0]), 1.f);
-      satHighMeter = std::min(std::abs(wet[2][0] - u[2][0]), 1.f);
-
-      // Auto-makeup (ley corregida en 2.7.1): se compara la senal que ENTRA en
-      // la no-linealidad (u, post-curveDrive) con la que SALE de ella (wet),
-      // descontando el TRIM estatico de la curva. Asi la ganancia vale ~1 en
-      // regimen lineal y NO cancela el mando de drive; solo compensa la
-      // compresion real de la curva. La version anterior comparaba la banda
-      // pre-drive con la salida post-curva, dos escalas distintas: daba 3.57
-      // constante en CLEAN y ~1/drive en regimen lineal.
-      float dIn[3];
-      float dOut[3];
-      dIn[0] = 0.5f * (std::abs(u[0][0]) + std::abs(u[0][1]));
-      dIn[1] = 0.5f * (std::abs(u[1][0]) + std::abs(u[1][1]));
-      dIn[2] = 0.5f * (std::abs(u[2][0]) + std::abs(u[2][1]));
-      for (int b = 0; b < 3; b++)
-        dOut[b] = 0.5f * (std::abs(wet[b][0]) + std::abs(wet[b][1])) /
-                  coaldynamics::TRIM[curve[b]];
-      autoMakeupDsp.update(dIn, dOut);
-    }
-  }
-
-  outL = stage.downsampleL(wetL);
-  outR = stage.downsampleR(wetR);
-}
 
 void Saturator::process(const ProcessArgs &args) {
   // exchange() consume la peticion de forma atomica: un store de la UI cae o
@@ -598,7 +305,7 @@ void Saturator::process(const ProcessArgs &args) {
   float inL = inputs[IN_L].getVoltage();
   float inR = inputs[IN_R].isConnected() ? inputs[IN_R].getVoltage() : inL;
 
-  OSParams p;
+  coaldynamics::OSParams p;
   p.driveLow = coaldynamics::driveFromCv(params[LOW_DRIVE].getValue(),
                                          inputs[LOW_DRIVE_INPUT].getVoltage(),
                                          params[LOW_DRIVE_CV].getValue());
@@ -612,50 +319,13 @@ void Saturator::process(const ProcessArgs &args) {
   p.curveMid = curves[1].load(std::memory_order_relaxed);
   p.curveHigh = curves[2].load(std::memory_order_relaxed);
 
-  // Cambio de curva aplicada con ADAA: resync de uPrev en la submuestra 0.
-  if (p.curveLow != adaaCurveApplied[0]) {
-    adaaCurveApplied[0] = p.curveLow;
-    adaaResync[0] = true;
-  }
-  if (p.curveMid != adaaCurveApplied[1]) {
-    adaaCurveApplied[1] = p.curveMid;
-    adaaResync[1] = true;
-  }
-  if (p.curveHigh != adaaCurveApplied[2]) {
-    adaaCurveApplied[2] = p.curveHigh;
-    adaaResync[2] = true;
-  }
-
-  // Rampa de solo/dry ~5 ms: objetivo segun `solo`, un paso lineal por muestra
-  // base (240 pasos a 48 kHz: step = sampleTime * 200). Se calcula UNA vez por
-  // process(), a frecuencia base; el valor queda constante en las N
-  // submuestras del bloque de oversampling, asi que no hay artefacto al
-  // cambiar de stage (1x/2x/4x/8x).
-  const int soloBand = solo.load(std::memory_order_relaxed);
-  const float soloStep = args.sampleTime * 200.f;
-  for (int b = 0; b < 3; b++) {
-    float target = (soloBand < 0 || soloBand == b) ? 1.f : 0.f;
-    if (soloGain[b] < target)
-      soloGain[b] = std::min(target, soloGain[b] + soloStep);
-    else
-      soloGain[b] = std::max(target, soloGain[b] - soloStep);
-  }
-  float dryTarget = (soloBand < 0) ? 1.f : 0.f;
-  if (dryGain < dryTarget)
-    dryGain = std::min(dryTarget, dryGain + soloStep);
-  else
-    dryGain = std::max(dryTarget, dryGain - soloStep);
-  p.soloGainLow = soloGain[0];
-  p.soloGainMid = soloGain[1];
-  p.soloGainHigh = soloGain[2];
-
   // Makeup por banda (G2): auto manda; con auto Off se usa el knob manual
   // (default 1.0 = 0 dB = identidad). Una lectura relaxed por muestra base.
   const bool autoOn = autoMakeup.load(std::memory_order_relaxed) != 0;
-  p.makeupLow = autoOn ? autoMakeupDsp.gain(0) : params[LOW_MAKEUP].getValue();
-  p.makeupMid = autoOn ? autoMakeupDsp.gain(1) : params[MID_MAKEUP].getValue();
+  p.makeupLow = autoOn ? core.autoMakeupDsp.gain(0) : params[LOW_MAKEUP].getValue();
+  p.makeupMid = autoOn ? core.autoMakeupDsp.gain(1) : params[MID_MAKEUP].getValue();
   p.makeupHigh =
-      autoOn ? autoMakeupDsp.gain(2) : params[HIGH_MAKEUP].getValue();
+      autoOn ? core.autoMakeupDsp.gain(2) : params[HIGH_MAKEUP].getValue();
 
   p.panLow = clamp(params[LOW_PAN].getValue() +
                        (inputs[LOW_PAN_INPUT].getVoltage() / 10.f) *
@@ -683,61 +353,27 @@ void Saturator::process(const ProcessArgs &args) {
                             params[HIGH_VOL_CV].getValue(),
                     0.f, 1.f);
 
-  float wetL = 0.f;
-  float wetR = 0.f;
-  switch (oversampling) {
-  case 1:
-    processBlock(stage1, p, inL, inR, wetL, wetR);
-    break;
-  case 2:
-    processBlock(stage2, p, inL, inR, wetL, wetR);
-    break;
-  case 8:
-    processBlock(stage8, p, inL, inR, wetL, wetR);
-    break;
-  default:
-    processBlock(stage4, p, inL, inR, wetL, wetR);
-    break;
-  }
+  // Mix y salida: el core aplica ambos al final de process().
+  p.mix = params[MIX_PARAM].getValue();
+  p.outVol = params[OUTPUT_VOL].getValue();
 
-  // DC-blocker de 15 Hz, solo en el camino wet: y = x - x1 + R*y1.
-  float blockedL = wetL - dcX1L + dcR * dcY1L;
-  dcX1L = wetL;
-  dcY1L = blockedL;
-  wetL = blockedL;
+  // Solo y rampas (~5 ms) viven en el core; basta con publicarle el objetivo.
+  core.soloBand = solo.load(std::memory_order_relaxed);
+  float outL = 0.f;
+  float outR = 0.f;
+  core.process(p, inL, inR, outL, outR, args.sampleTime);
 
-  float blockedR = wetR - dcX1R + dcR * dcY1R;
-  dcX1R = wetR;
-  dcY1R = blockedR;
-  wetR = blockedR;
-
-  // El dry se retrasa lo mismo que el wet para no cancelar en peine al mezclar
-  dryBufferL[dryIndex] = inL;
-  dryBufferR[dryIndex] = inR;
-  int readIndex = dryIndex - dryDelay;
-  if (readIndex < 0)
-    readIndex += coaldynamics::OS_LATENCY + 1;
-  float dryL = dryBufferL[readIndex];
-  float dryR = dryBufferR[readIndex];
-  dryIndex++;
-  if (dryIndex > coaldynamics::OS_LATENCY)
-    dryIndex = 0;
-
-  float mix = params[MIX_PARAM].getValue();
-  float outL = dryL * (1.f - mix) * dryGain + wetL * mix;
-  float outR = dryR * (1.f - mix) * dryGain + wetR * mix;
-
-  float outVol = params[OUTPUT_VOL].getValue();
-  outputs[OUT_L].setVoltage(outL * outVol);
-  outputs[OUT_R].setVoltage(outR * outVol);
+  // outVol ya esta aplicado dentro del core: NO volver a multiplicar.
+  outputs[OUT_L].setVoltage(outL);
+  outputs[OUT_R].setVoltage(outR);
 
   if (lightDivider.process()) {
     float smoothTime = args.sampleTime * lightDivider.getDivision();
-    lights[SATURE_LIGHT + 0].setSmoothBrightness(satLowMeter, smoothTime);
-    lights[SATURE_LIGHT + 1].setSmoothBrightness(satLowMeter, smoothTime);
-    lights[SATURE_LIGHT + 2].setSmoothBrightness(satMidMeter, smoothTime);
-    lights[SATURE_LIGHT + 3].setSmoothBrightness(satMidMeter, smoothTime);
-    lights[SATURE_LIGHT + 4].setSmoothBrightness(satHighMeter, smoothTime);
-    lights[SATURE_LIGHT + 5].setSmoothBrightness(satHighMeter, smoothTime);
+    lights[SATURE_LIGHT + 0].setSmoothBrightness(core.satLowMeter, smoothTime);
+    lights[SATURE_LIGHT + 1].setSmoothBrightness(core.satLowMeter, smoothTime);
+    lights[SATURE_LIGHT + 2].setSmoothBrightness(core.satMidMeter, smoothTime);
+    lights[SATURE_LIGHT + 3].setSmoothBrightness(core.satMidMeter, smoothTime);
+    lights[SATURE_LIGHT + 4].setSmoothBrightness(core.satHighMeter, smoothTime);
+    lights[SATURE_LIGHT + 5].setSmoothBrightness(core.satHighMeter, smoothTime);
   }
 }

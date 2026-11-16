@@ -253,10 +253,10 @@ int stagePeak() {
 }
 
 Outcome caseLat() {
-  const int l1 = stagePeak<cdt::LocalBypassStage>();
-  const int l2 = stagePeak<cdt::LocalStage<2> >();
-  const int l4 = stagePeak<cdt::LocalStage<4> >();
-  const int l8 = stagePeak<cdt::LocalStage<8> >();
+  const int l1 = stagePeak<coaldynamics::BypassStage<coaldynamics::OS_QUALITY> >();
+  const int l2 = stagePeak<coaldynamics::OversampledStage<2, coaldynamics::OS_QUALITY> >();
+  const int l4 = stagePeak<coaldynamics::OversampledStage<4, coaldynamics::OS_QUALITY> >();
+  const int l8 = stagePeak<coaldynamics::OversampledStage<8, coaldynamics::OS_QUALITY> >();
 
   int dev = std::abs(l1 - 0);
   dev = std::max(dev, std::abs(l2 - 15));

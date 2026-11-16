@@ -7,6 +7,7 @@
 #include "Oversampling.hpp"
 #include "Curves.hpp"
 #include "AutoMakeup.hpp"
+#include "SaturatorDsp.hpp"
 
 using namespace rack;
 
@@ -97,28 +98,10 @@ struct Saturator : Module {
   enum OutputIds { OUT_L, OUT_R, NUM_OUTPUTS };
   enum LightIds { ENUMS(SATURE_LIGHT, 6), NUM_LIGHTS };
 
-  /** Parameters already resolved (knob + CV) for one base-rate sample. */
-  struct OSParams {
-    float driveLow, driveMid, driveHigh;
-    float panLow, panMid, panHigh;
-    float volLow, volMid, volHigh;
-    /** Ganancia de solo con rampa (0..1) de cada banda, resuelta por muestra base. */
-    float soloGainLow, soloGainMid, soloGainHigh;
-    int curveLow, curveMid, curveHigh;
-    /** Makeup resuelto por banda para esta muestra base (G2): auto o manual. */
-    float makeupLow, makeupMid, makeupHigh;
-  };
 
   dsp::ClockDivider lightDivider;
 
-  dsp::BiquadFilter lowFilterL, lowFilterR;
-  dsp::BiquadFilter midFilterL, midFilterR;
-  dsp::BiquadFilter highFilterL, highFilterR;
-
-  /** Segunda etapa de la cascada LR4: Low = LP4 (lowFilter -> lowFilter2),
-      High = HP4 (highFilter -> highFilter2). En modo LEGACY no se usan. */
-  dsp::BiquadFilter lowFilter2L, lowFilter2R;
-  dsp::BiquadFilter highFilter2L, highFilter2R;
+  coaldynamics::SaturatorDsp core;
 
   /** Modo de crossover: 0 = LEGACY (LP 250 / BP 1k / HP 4k en paralelo),
       1 = LR4 (Low = LP4, High = HP4, Mid = x - low - high). Solo lo escribe
@@ -142,34 +125,12 @@ struct Saturator : Module {
       alternarlo no reconstruye coeficientes ni resetea estado (los detectores
       corren siempre). */
   std::atomic<int> autoMakeup{0};
-  /** Detector + suavizado por banda. Corre siempre (auto on u off) para que
-      activar el modo no necesite primado. Solo hilo de audio. */
-  coaldynamics::AutoMakeup autoMakeupDsp;
 
-  /** Historial ADAA1: u_prev[banda][canal], con banda 0 = Low, 1 = Mid,
-      2 = High. Solo hilo de audio. Solo se actualiza con curvas que
-      soportan ADAA. */
-  float uPrev[3][2] = {};
-
-  /** Resync pendiente por banda: en la submuestra i == 0 del bloque se hace
-      uPrev = u (una vez por banda) para no arrastrar historia de otra curva
-      ni de otro estado de filtros. Solo hilo de audio. */
-  bool adaaResync[3] = {true, true, true};
-
-  /** Ultima curva aplicada por banda (0..2). -1 = sin inicializar. Detecta el
-      cambio de curva en process() una vez por bloque (no por muestra). */
-  int adaaCurveApplied[3] = {-1, -1, -1};
-
-  coaldynamics::OversampledStage<2, coaldynamics::OS_QUALITY> stage2;
-  coaldynamics::OversampledStage<4, coaldynamics::OS_QUALITY> stage4;
-  coaldynamics::OversampledStage<8, coaldynamics::OS_QUALITY> stage8;
-  coaldynamics::BypassStage<coaldynamics::OS_QUALITY> stage1;
-
-  /** 1, 2, 4 u 8. Sólo lo escribe applyOversampling() en el hilo de audio.
+  /** 1, 2, 4 u 8. SÃ³lo lo escribe applyOversampling() en el hilo de audio.
       Por defecto 1 (off): el oversampling es opt-in. */
   int oversampling = 1;
   /** Pedido pendiente de aplicar (0 = ninguno). Lo escribe la UI o el JSON y lo
-      consume el hilo de audio con exchange(), por eso es atómico. */
+      consume el hilo de audio con exchange(), por eso es atÃ³mico. */
   std::atomic<int> pendingOversampling{0};
   float sampleRate = 44100.f;
 
@@ -186,27 +147,6 @@ struct Saturator : Module {
   /** Solo por banda: -1 = Off, 0 = Low, 1 = Mid, 2 = High. La UI y el JSON
       lo escriben con setSolo(); el audio lo lee cada muestra base. */
   std::atomic<int> solo{-1};
-  /** Ganancias del solo con rampa (~5 ms): 0..1 por banda y para el camino
-      dry. Solo hilo de audio; arrancan en 1 y la rampa las lleva al objetivo. */
-  float soloGain[3] = {1.f, 1.f, 1.f};
-  float dryGain = 1.f;
-
-  /** DC-blocker de 15 Hz, solo en el camino wet: coeficiente y estado. */
-  float dcR = 0.f;
-  float dcX1L = 0.f, dcX1R = 0.f;
-  float dcY1L = 0.f, dcY1R = 0.f;
-
-  /** Delay de la señal dry para compensar la latencia del sobremuestreo. */
-  float dryBufferL[coaldynamics::OS_LATENCY + 1] = {};
-  float dryBufferR[coaldynamics::OS_LATENCY + 1] = {};
-  int dryIndex = 0;
-  /** 1x por defecto: sin latencia de oversampling hasta que se active. */
-  int dryDelay = 0;
-
-  /** Saturation meters for the lights, taken from the last oversampled sub-sample. */
-  float satLowMeter = 0.f;
-  float satMidMeter = 0.f;
-  float satHighMeter = 0.f;
 
   Saturator();
 
@@ -219,7 +159,7 @@ struct Saturator : Module {
   void setOversampling(int factor);
   /** Llamado desde UI o JSON: valida 0 (LEGACY) / 1 (LR4) y deja la peticion. */
   void setCrossover(int mode);
-  /** Llamado desde UI/JSON: valida y publica la curva de una banda. */
+  /** Llamado desde UI o JSON: valida y publica la curva de una banda. */
   void setCurve(int band, int id);
   /** Llamado desde UI o JSON: valida -1 (Off) hasta 2 (High) y publica el solo. */
   void setSolo(int band);
@@ -227,27 +167,14 @@ struct Saturator : Module {
   void applyOversampling(int factor);
   /** Llamado desde el hilo de audio: resetea filtros y rehace coeficientes. */
   void applyCrossover(int mode);
-  void updateFilterFrequencies();
 
-  /** Llamado desde UI/JSON: valida 0/1 y deja la peticion. */
+  /** Llamado desde UI o JSON: valida 0/1 y deja la peticion. */
   void setAdaa(int on);
   /** Llamado desde el hilo de audio: fija `adaa` y resetea el historial. */
   void applyAdaa(int on);
-  /** Hilo de audio: uPrev = 0 en los 6 historiales + resync de las 3 bandas
-      + adaaCurveApplied = -1. Sin allocs, sin ramas por muestra. */
-  void resetAdaaState();
 
   /** Llamado desde UI o JSON: valida 0/1 y publica el selector. */
   void setAutoMakeup(int on);
 
   void onReset() override;
-
-  /** Elige topologia y ADAA una vez por bloque (no por muestra). */
-  template <class Stage>
-  void processBlock(Stage &stage, const OSParams &p, float inL, float inR,
-                    float &outL, float &outR);
-
-  template <class Stage, bool LR4, bool ADAA>
-  void processBands(Stage &stage, const OSParams &p, float inL, float inR,
-                    float &outL, float &outR);
 };

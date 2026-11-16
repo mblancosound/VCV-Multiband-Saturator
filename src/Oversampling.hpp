@@ -1,6 +1,6 @@
 #pragma once
 
-#include <rack.hpp>
+#include <dsp/resampler.hpp>
 
 namespace coaldynamics {
 
