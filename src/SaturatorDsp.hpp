@@ -17,6 +17,8 @@ struct OSParams {
   float soloGainLow, soloGainMid, soloGainHigh;
   int curveLow, curveMid, curveHigh;
   float makeupLow, makeupMid, makeupHigh;
+  /** Ganancias combinadas por muestra base (J2): makeup * vol * pan * solo. */
+  float gainLowL, gainLowR, gainMidL, gainMidR, gainHighL, gainHighR;
   float mix;
   float outVol;
 };
@@ -259,12 +261,12 @@ struct SaturatorDsp {
         }
       }
 
-      float lowOutL = wet[0][0] * p.makeupLow * p.volLow * std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
-      float lowOutR = wet[0][1] * p.makeupLow * p.volLow * std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
-      float midOutL = wet[1][0] * p.makeupMid * p.volMid * std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
-      float midOutR = wet[1][1] * p.makeupMid * p.volMid * std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
-      float upperOutL = wet[2][0] * p.makeupHigh * p.volHigh * std::min(1.f, 1.f - p.panHigh) * p.soloGainHigh;
-      float upperOutR = wet[2][1] * p.makeupHigh * p.volHigh * std::min(1.f, 1.f + p.panHigh) * p.soloGainHigh;
+      float lowOutL = wet[0][0] * p.gainLowL;
+      float lowOutR = wet[0][1] * p.gainLowR;
+      float midOutL = wet[1][0] * p.gainMidL;
+      float midOutR = wet[1][1] * p.gainMidR;
+      float upperOutL = wet[2][0] * p.gainHighL;
+      float upperOutR = wet[2][1] * p.gainHighR;
 
       wetL[i] = lowOutL + midOutL + upperOutL;
       wetR[i] = lowOutR + midOutR + upperOutR;
@@ -319,6 +321,15 @@ struct SaturatorDsp {
     p.soloGainLow = soloGain[0];
     p.soloGainMid = soloGain[1];
     p.soloGainHigh = soloGain[2];
+
+    // Ganancias combinadas (J2): una multiplicacion por muestra base en vez de
+    // cinco por submuestra en processBands.
+    p.gainLowL = p.makeupLow * p.volLow * std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
+    p.gainLowR = p.makeupLow * p.volLow * std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
+    p.gainMidL = p.makeupMid * p.volMid * std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
+    p.gainMidR = p.makeupMid * p.volMid * std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
+    p.gainHighL = p.makeupHigh * p.volHigh * std::min(1.f, 1.f - p.panHigh) * p.soloGainHigh;
+    p.gainHighR = p.makeupHigh * p.volHigh * std::min(1.f, 1.f + p.panHigh) * p.soloGainHigh;
 
     float wetL = 0.f;
     float wetR = 0.f;

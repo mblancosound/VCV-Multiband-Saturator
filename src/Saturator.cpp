@@ -39,29 +39,8 @@ Saturator::Saturator() {
   configParam<MakeupParamQuantity>(MID_MAKEUP, 1.f, 3.9810717f, 1.f, "Mid Makeup", " dB");
   configParam<MakeupParamQuantity>(HIGH_MAKEUP, 1.f, 3.9810717f, 1.f, "High Makeup", " dB");
 
-  getParamQuantity(LOW_DRIVE)->randomizeEnabled = false;
-  getParamQuantity(LOW_PAN)->randomizeEnabled = false;
-  getParamQuantity(LOW_VOL)->randomizeEnabled = false;
-  getParamQuantity(MID_DRIVE)->randomizeEnabled = false;
-  getParamQuantity(MID_PAN)->randomizeEnabled = false;
-  getParamQuantity(MID_VOL)->randomizeEnabled = false;
-  getParamQuantity(HIGH_DRIVE)->randomizeEnabled = false;
-  getParamQuantity(HIGH_PAN)->randomizeEnabled = false;
-  getParamQuantity(HIGH_VOL)->randomizeEnabled = false;
-  getParamQuantity(OUTPUT_VOL)->randomizeEnabled = false;
-  getParamQuantity(MIX_PARAM)->randomizeEnabled = false;
-  getParamQuantity(LOW_PAN_CV)->randomizeEnabled = false;
-  getParamQuantity(LOW_VOL_CV)->randomizeEnabled = false;
-  getParamQuantity(MID_PAN_CV)->randomizeEnabled = false;
-  getParamQuantity(MID_VOL_CV)->randomizeEnabled = false;
-  getParamQuantity(HIGH_PAN_CV)->randomizeEnabled = false;
-  getParamQuantity(HIGH_VOL_CV)->randomizeEnabled = false;
-  getParamQuantity(LOW_DRIVE_CV)->randomizeEnabled = false;
-  getParamQuantity(MID_DRIVE_CV)->randomizeEnabled = false;
-  getParamQuantity(HIGH_DRIVE_CV)->randomizeEnabled = false;
-  getParamQuantity(LOW_MAKEUP)->randomizeEnabled = false;
-  getParamQuantity(MID_MAKEUP)->randomizeEnabled = false;
-  getParamQuantity(HIGH_MAKEUP)->randomizeEnabled = false;
+  for (int i = 0; i < NUM_PARAMS; ++i)
+    getParamQuantity(i)->randomizeEnabled = false;
 
   configInput(IN_L, "Left input");
   configInput(IN_R, "Right input");
