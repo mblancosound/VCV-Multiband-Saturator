@@ -3,7 +3,12 @@
 All notable changes to **Anthracite** (Coal Dynamics) since the last
 VCV Library release, **2.6.2**. Newest first.
 
-The canonical, complete changelog lives in [`manual/changelog.md`](manual/changelog.md) (newest first). Latest: **2.9.0**.
+The canonical, complete changelog lives in [`manual/changelog.md`](manual/changelog.md) (newest first). Latest: **2.9.1**.
+
+## [2.9.1] - 2026-11-19
+
+- Internal cleanup only, no audible change (strict parity 512/512 bit-identical).
+- Build timings moved to `docs/technical-notes.md`.
 
 ## [2.9.0] - 2026-11-16
 

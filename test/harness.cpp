@@ -326,7 +326,7 @@ double measureAlias(int curve, int n) {
     la baseline ADAA-off de TANH 4x da -25.86 dB, que es el -25.9 dB de la
     spec (con fMax=FS/2 da -13.17 dB). Por encima de 20 kHz el suelo esta
     dominado por la fuga del 5o armonico (25 kHz) en la banda de transicion
-    del decimador del LocalStage, que cae en 23 kHz: es energia que ADAA no
+    del decimador del OversampledStage, que cae en 23 kHz: es energia que ADAA no
     puede corregir y que deja los tres limites inalcanzables. */
 double measureAliasAdaa(int curve, int n) {
   cdt::OfflineChain ch;

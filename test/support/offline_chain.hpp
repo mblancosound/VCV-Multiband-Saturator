@@ -31,7 +31,6 @@ struct ChainParams {
 
 struct OfflineChain {
   coaldynamics::SaturatorDsp dsp;
-  float sampleRate = 48000.f;
   int adaaApplied = -1;
 
   ChainParams p;
@@ -39,7 +38,6 @@ struct OfflineChain {
   OfflineChain() { configure(48000.f, 1); }
 
   void configure(float fs, int factor) {
-    sampleRate = fs;
     adaaApplied = p.adaa;
     dsp.setAdaa(p.adaa);
     dsp.setCrossover(p.lr4 ? 1 : 0);
@@ -51,9 +49,7 @@ struct OfflineChain {
 
   void settleRamps() {
     dsp.soloBand = p.soloBand;
-    for (int b = 0; b < 3; ++b)
-      dsp.soloGain[b] = (p.soloBand < 0 || p.soloBand == b) ? 1.f : 0.f;
-    dsp.dryGain = (p.soloBand < 0) ? 1.f : 0.f;
+    dsp.settleRamps();
   }
 
   void process(float inL, float inR, float &outL, float &outR) {
@@ -72,9 +68,6 @@ struct OfflineChain {
     q.volLow = p.volLow;
     q.volMid = p.volMid;
     q.volHigh = p.volHigh;
-    q.soloGainLow = dsp.soloGain[0];
-    q.soloGainMid = dsp.soloGain[1];
-    q.soloGainHigh = dsp.soloGain[2];
     q.curveLow = p.curveLow;
     q.curveMid = p.curveMid;
     q.curveHigh = p.curveHigh;
@@ -86,7 +79,7 @@ struct OfflineChain {
     q.makeupLow = mkLow;
     q.makeupMid = mkMid;
     q.makeupHigh = mkHigh;
-    dsp.process(q, inL, inR, outL, outR, 1.f / sampleRate);
+    dsp.process(q, inL, inR, outL, outR, 1.f / dsp.sampleRate);
   }
 };
 

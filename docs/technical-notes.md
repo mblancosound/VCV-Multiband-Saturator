@@ -73,3 +73,7 @@ curves / solo / copy curve / info.
 ## Test harness
 
 Offline harness (`test/`): 17 cases over the real DSP core (`src/SaturatorDsp.hpp`) with frozen baselines.
+
+## Build timings
+
+Windows + MSYS2, reference machine: clean 7.2 s, one file 2.7 s, no-op 0.9 s, `make dist` 1.6 s.

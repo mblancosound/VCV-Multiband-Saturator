@@ -14,7 +14,6 @@ struct OSParams {
   float driveLow, driveMid, driveHigh;
   float panLow, panMid, panHigh;
   float volLow, volMid, volHigh;
-  float soloGainLow, soloGainMid, soloGainHigh;
   int curveLow, curveMid, curveHigh;
   float makeupLow, makeupMid, makeupHigh;
   /** Ganancias combinadas por muestra base (J2): makeup * vol * pan * solo. */
@@ -63,6 +62,14 @@ struct SaturatorDsp {
   float satMidMeter = 0.f;
   float satHighMeter = 0.f;
 
+  void clearDryBuffer() {
+    for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
+      dryBufferL[i] = 0.f;
+      dryBufferR[i] = 0.f;
+    }
+    dryIndex = 0;
+  }
+
   void setSampleRate(float fs) {
     sampleRate = fs;
     const float twoPi = 6.283185307179586f;
@@ -71,11 +78,7 @@ struct SaturatorDsp {
     dcX1R = 0.f;
     dcY1L = 0.f;
     dcY1R = 0.f;
-    for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
-      dryBufferL[i] = 0.f;
-      dryBufferR[i] = 0.f;
-    }
-    dryIndex = 0;
+    clearDryBuffer();
     autoMakeupDsp.setSampleRate(fs);
     updateFilterFrequencies();
   }
@@ -91,11 +94,7 @@ struct SaturatorDsp {
     else if (factor == 8)
       stage8.reset();
     dryDelay = (factor > 1) ? coaldynamics::OS_LATENCY : 0;
-    for (int i = 0; i <= coaldynamics::OS_LATENCY; i++) {
-      dryBufferL[i] = 0.f;
-      dryBufferR[i] = 0.f;
-    }
-    dryIndex = 0;
+    clearDryBuffer();
     lowFilterL.reset();
     lowFilterR.reset();
     midFilterL.reset();
@@ -173,8 +172,6 @@ struct SaturatorDsp {
     satHighMeter = 0.f;
     autoMakeupDsp.reset();
   }
-
-  void reset() { resetState(); }
 
   void settleRamps() {
     for (int b = 0; b < 3; b++)
@@ -318,18 +315,15 @@ struct SaturatorDsp {
       dryGain = std::min(dryTarget, dryGain + soloStep);
     else
       dryGain = std::max(dryTarget, dryGain - soloStep);
-    p.soloGainLow = soloGain[0];
-    p.soloGainMid = soloGain[1];
-    p.soloGainHigh = soloGain[2];
 
     // Ganancias combinadas (J2): una multiplicacion por muestra base en vez de
     // cinco por submuestra en processBands.
-    p.gainLowL = p.makeupLow * p.volLow * std::min(1.f, 1.f - p.panLow) * p.soloGainLow;
-    p.gainLowR = p.makeupLow * p.volLow * std::min(1.f, 1.f + p.panLow) * p.soloGainLow;
-    p.gainMidL = p.makeupMid * p.volMid * std::min(1.f, 1.f - p.panMid) * p.soloGainMid;
-    p.gainMidR = p.makeupMid * p.volMid * std::min(1.f, 1.f + p.panMid) * p.soloGainMid;
-    p.gainHighL = p.makeupHigh * p.volHigh * std::min(1.f, 1.f - p.panHigh) * p.soloGainHigh;
-    p.gainHighR = p.makeupHigh * p.volHigh * std::min(1.f, 1.f + p.panHigh) * p.soloGainHigh;
+    p.gainLowL = p.makeupLow * p.volLow * std::min(1.f, 1.f - p.panLow) * soloGain[0];
+    p.gainLowR = p.makeupLow * p.volLow * std::min(1.f, 1.f + p.panLow) * soloGain[0];
+    p.gainMidL = p.makeupMid * p.volMid * std::min(1.f, 1.f - p.panMid) * soloGain[1];
+    p.gainMidR = p.makeupMid * p.volMid * std::min(1.f, 1.f + p.panMid) * soloGain[1];
+    p.gainHighL = p.makeupHigh * p.volHigh * std::min(1.f, 1.f - p.panHigh) * soloGain[2];
+    p.gainHighR = p.makeupHigh * p.volHigh * std::min(1.f, 1.f + p.panHigh) * soloGain[2];
 
     float wetL = 0.f;
     float wetR = 0.f;

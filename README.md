@@ -10,7 +10,7 @@ Stereo 3-band saturator (Low / Mid / High) with per-band drive, pan, volume, mak
 
 - Plugin: `Coal Dynamics` (slug `Coal_Dynamics`)
 - Module: `Anthracite`
-- Version: `2.9.0`
+- Version: `2.9.1`
 - License: MIT (see `LICENSE.txt`)
 - Source: https://github.com/mblancosound/VCV-Multiband-Saturator
 
@@ -45,8 +45,6 @@ make        # ./plugin.dll (or .so / .dylib)
 make dist   # dist/Coal_Dynamics-<version>-<platform>.vcvplugin
 make test   # offline DSP harness (17 cases; run it from the repo root)
 ```
-
-Windows + MSYS2 timings: clean 7.2 s, one file 2.7 s, no-op 0.9 s, `make dist` 1.6 s.
 
 ## Docs
 

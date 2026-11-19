@@ -2,6 +2,20 @@
 
 All notable changes to **Anthracite** (Coal Dynamics) since the last VCV Library release, **2.6.2**. Newest first.
 
+## [2.9.1] - 2026-11-19
+
+### Changed
+
+- Internal cleanup: the three per-band solo gains are read directly from the ramp array, the offline adapter delegates `settleRamps()` to the core, and the duplicated dry-buffer clearing is a single helper. Build timings moved from the README to `docs/technical-notes.md`.
+
+### Removed
+
+- Unused `SaturatorDsp::reset()` alias (only `resetState()` is called).
+
+### Notes
+
+- Internal only: no audible change, and no parameter, input, output, range, default, widget or SVG change. Strict parity against 2.9.0: 512/512 dumps bit-identical; offline harness 17/17.
+
 ## [2.9.0] - 2026-11-16
 
 ### Added

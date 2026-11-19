@@ -109,7 +109,7 @@ Per-band curve selector. Nine curves available: Clean, Tanh, Cubic, Arctan, Hard
 
 ### Info
 
-Read-only label: `48.0 kHz | 1x | 0 samples | v2.9.0` — sample rate, oversampling factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
+Read-only label: `48.0 kHz | 1x | 0 samples | v2.9.1` — sample rate, oversampling factor, latency in samples (0 at 1x, 15 at 2x/4x/8x) and plugin version.
 
 ## Bypass
 
@@ -127,7 +127,7 @@ IN L/R
 
 ## Installation
 
-- **From the VCV Library** (recommended): install from Rack's **Library** menu. Version **2.9.0** is the version submitted to the VCV Library.
+- **From the VCV Library** (recommended): install from Rack's **Library** menu. Version **2.9.1** is the version submitted to the VCV Library.
 - **From a package**: download the `.vcvplugin` from the **GitHub Releases** page of the [Coal Dynamics repository](https://github.com/mblancosound/VCV-Multiband-Saturator), install it via **Help > Install plugin file...** in Rack, and restart Rack.
 
 ## Patch compatibility
